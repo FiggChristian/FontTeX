@@ -1,3 +1,4 @@
+// TODO: add \widehat, \widetilde, and \vec
 !function() {
     "use strict";
     // The TeXbook has an extended metaphor throughout the book that compares TeX's
@@ -19,7 +20,7 @@
     // If, for whatever reason, someone loaded two version of fontTeX, the one with the
     // latest version number ones. They're compared as string instead of numbers to
     // handle version numbers with double digits like 1.10.15.
-    var current = '0.1';
+    var current = '0.2';
     if (fontTeX.version) {
         if (current.split('.').map(function(number) {
             return String.fromCharCode(48 + +number);
@@ -126,17 +127,18 @@
             } else if (!isNaN(arg.length)) {
                 for (var i = 0, l = arg.length; i < l; i++) {
                     // This is where all the rendering happens.
+                    arg[i].innerHTML = '';
+
                     var family = getComputedStyle(arg[i]).fontFamily,
-                        frag = document.createDocumentFragment();
+                        html = '';
                     for (var n = 0, j = tokens.length; n < j; n++) {
                         if (typeof tokens[n] == 'string') {
-                            frag.appendChild(document.createTextNode(tokens[n]));
+                            html += tokens[n];
                         } else {
-                            frag.appendChild(fontTeX._genHTML(arg[i], tokens[n][0], tokens[n][1], family));
+                            html += fontTeX._genHTML(arg[i], tokens[n][0], tokens[n][1], family).outerHTML;
                         }
                     }
-                    arg[i].innerHTML = '';
-                    arg[i].appendChild(frag);
+                    arg[i].innerHTML = html;
                 }
             }
         },
@@ -249,8 +251,7 @@
         // sion of TeX because they don't REALLy add any functionality other than error
         // debugging.
         var prefixedToggles = {
-            global: false,
-            mathchoice: false
+            global: false
         }
 
         // `contexts' keeps track of the context of what's being parsed. For example, when
@@ -592,43 +593,43 @@
                             if (!token) break;
 
                             if (context == 'start' && (token.type == 'command' || token.type == 'character' && token.cat == data.cats.active)) {
-                                // Try to expand the command into tokens and parse from there. If the command is a
-                                // \relax token though, stop parsing immediately. Only "expandable" commands are
-                                // actually expanded. That's because if a \over for example is found, it's obvious-
-                                // ly not going to add anything to the integer, but it WILL screw up the current
-                                // scope by thinking it's supposed to be turned into a fraction before the integer
-                                // is done being parsed. Register tokens are also allowed.
-                                var macro = token.type == 'command' ? scopes.last.defs.primitive[token.name] || scopes.last.defs.macros[token.name] : scopes.last.defs.active[token.char];
+                                // Only a certain set of commands (those that return registers) will actually be
+                                // executed. Other commands, like \over will mess with the scope if they're execu-
+                                // ted in the wrong context like this. Registers are the only real tokens that are
+                                // accepted from commands. The one exception is \relax. It doesn't return a regis-
+                                // ter, but it DOES end this whole token-eating process early. It prevents anything
+                                // after the \relax from being falsely interpreted as tokens belonging to the inte-
+                                // ger.
+                                var macro = token.type == 'command' ? scopes.last.defs.primitive[token.name] || scopes.last.defs.macros[token.name] || scopes.last.registers.named[token.name] : scopes.last.defs.active[token.char];
 
-                                if (macro && (
-                                    (macro === data.defs.primitive.above           || macro.proxy && macro.original === data.defs.primitive.above)           ||
-                                    (macro === data.defs.primitive.abovewithdelims || macro.proxy && macro.original === data.defs.primitive.abovewithdelims) ||
-                                    (macro === data.defs.primitive.atop            || macro.proxy && macro.original === data.defs.primitive.atopwithdelims)  ||
-                                    (macro === data.defs.primitive.atopwithdelims  || macro.proxy && macro.original === data.defs.primitive.atopwithdelims)  ||
-                                    (macro === data.defs.primitive.over            || macro.proxy && macro.original === data.defs.primitive.over)            ||
-                                    (macro === data.defs.primitive.overwithdelims  || macro.proxy && macro.original === data.defs.primitive.overwithdelims)  ||
-                                    (macro === data.defs.primitive.begingroup      || macro.proxy && macro.original === data.defs.primitive.begingroup)      ||
-                                    (macro === data.defs.primitive.endgroup        || macro.proxy && macro.original === data.defs.primitive.endgroup)        ||
-                                    (macro === data.defs.primitive.left            || macro.proxy && macro.original === data.defs.primitive.left)            ||
-                                    (macro === data.defs.primitive.right           || macro.proxy && macro.original === data.defs.primitive.right)           ||
-                                    (macro === data.defs.primitive.edef            || macro.proxy && macro.original === data.defs.primitive.edef)            ||
-                                    (macro === data.defs.primitive.gdef            || macro.proxy && macro.original === data.defs.primitive.gdef)            ||
-                                    (macro === data.defs.primitive.xdef            || macro.proxy && macro.original === data.defs.primitive.xdef)            ||
-                                    (macro === data.defs.primitive.let             || macro.proxy && macro.original === data.defs.primitive.let)             ||
-                                    (macro === data.defs.primitive.futurelet       || macro.proxy && macro.original === data.defs.primitive.futurelet)       ||
-                                    (macro === data.defs.primitive.global          || macro.proxy && macro.original === data.defs.primitive.global))) {
+                                if (macro && (macro.register ||
+                                    (macro === data.defs.primitive.catcode  || macro.proxy && macro.original === data.defs.primitive.catcode)  ||
+                                    (macro === data.defs.primitive.count    || macro.proxy && macro.original === data.defs.primitive.count)    ||
+                                    (macro === data.defs.primitive.day      || macro.proxy && macro.original === data.defs.primitive.day)      ||
+                                    (macro === data.defs.primitive.dimen    || macro.proxy && macro.original === data.defs.primitive.dimen)    ||
+                                    (macro === data.defs.primitive.lccode   || macro.proxy && macro.original === data.defs.primitive.lccode)   ||
+                                    (macro === data.defs.primitive.mathcode || macro.proxy && macro.original === data.defs.primitive.mathcode) ||
+                                    (macro === data.defs.primitive.month    || macro.proxy && macro.original === data.defs.primitive.month)    ||
+                                    (macro === data.defs.primitive.muskip   || macro.proxy && macro.original === data.defs.primitive.muskip)   ||
+                                    (macro === data.defs.primitive.skip     || macro.proxy && macro.original === data.defs.primitive.skip)     ||
+                                    (macro === data.defs.primitive.time     || macro.proxy && macro.original === data.defs.primitive.time)     ||
+                                    (macro === data.defs.primitive.uccode   || macro.proxy && macro.original === data.defs.primitive.uccode)   ||
+                                    (macro === data.defs.primitive.year     || macro.proxy && macro.original === data.defs.primitive.year))) {
+
+                                    var expansion = expand(token, mouth);
+
+                                    if (expansion.length == 1 && expansion[0] === token && token.invalid) {
+                                        mouth.revert();
+                                        break;
+                                    }
+                                    mouth.queue.unshift.apply(mouth.queue, expansion);
+                                    continue;
+                                } else if (macro && (macro === data.defs.primitive.relax || macro.proxy && macro.original === data.defs.primitive.relax)) {
+                                    break;
+                                } else {
                                     mouth.revert();
                                     break;
                                 }
-
-                                var expansion = expand(token, mouth);
-
-                                if (expansion.length == 1 && expansion[0] === token && token.invalid) {
-                                    mouth.revert();
-                                    break;
-                                }
-                                mouth.queue.unshift.apply(mouth.queue, expansion);
-                                continue;
                             } else if (context == 'start' && token.cat == data.cats.whitespace) {
                                 // A regular whitespace token was found. Just ignore and continue;
                                 continue;
@@ -716,37 +717,36 @@
                             if (!token) break;
 
                             if (context == 'start' && (token.type == 'command' || token.type == 'character' && token.cat == data.cats.active)) {
-                                var macro = token.type == 'command' ? scopes.last.defs.primitive[token.name] || scopes.last.defs.macros[token.name] : scopes.last.defs.active[token.char];
+                                var macro = token.type == 'command' ? scopes.last.defs.primitive[token.name] || scopes.last.defs.macros[token.name] || scopes.last.registers.named[token.name] : scopes.last.defs.active[token.char];
 
-                                if (macro && (
-                                    (macro === data.defs.primitive.above           || macro.proxy && macro.original === data.defs.primitive.above)           ||
-                                    (macro === data.defs.primitive.abovewithdelims || macro.proxy && macro.original === data.defs.primitive.abovewithdelims) ||
-                                    (macro === data.defs.primitive.atop            || macro.proxy && macro.original === data.defs.primitive.atopwithdelims)  ||
-                                    (macro === data.defs.primitive.atopwithdelims  || macro.proxy && macro.original === data.defs.primitive.atopwithdelims)  ||
-                                    (macro === data.defs.primitive.over            || macro.proxy && macro.original === data.defs.primitive.over)            ||
-                                    (macro === data.defs.primitive.overwithdelims  || macro.proxy && macro.original === data.defs.primitive.overwithdelims)  ||
-                                    (macro === data.defs.primitive.begingroup      || macro.proxy && macro.original === data.defs.primitive.begingroup)      ||
-                                    (macro === data.defs.primitive.endgroup        || macro.proxy && macro.original === data.defs.primitive.endgroup)        ||
-                                    (macro === data.defs.primitive.left            || macro.proxy && macro.original === data.defs.primitive.left)            ||
-                                    (macro === data.defs.primitive.right           || macro.proxy && macro.original === data.defs.primitive.right)           ||
-                                    (macro === data.defs.primitive.edef            || macro.proxy && macro.original === data.defs.primitive.edef)            ||
-                                    (macro === data.defs.primitive.gdef            || macro.proxy && macro.original === data.defs.primitive.gdef)            ||
-                                    (macro === data.defs.primitive.xdef            || macro.proxy && macro.original === data.defs.primitive.xdef)            ||
-                                    (macro === data.defs.primitive.let             || macro.proxy && macro.original === data.defs.primitive.let)             ||
-                                    (macro === data.defs.primitive.futurelet       || macro.proxy && macro.original === data.defs.primitive.futurelet)       ||
-                                    (macro === data.defs.primitive.global          || macro.proxy && macro.original === data.defs.primitive.global))) {
+                                if (macro && (macro.register ||
+                                    (macro === data.defs.primitive.catcode  || macro.proxy && macro.original === data.defs.primitive.catcode)  ||
+                                    (macro === data.defs.primitive.count    || macro.proxy && macro.original === data.defs.primitive.count)    ||
+                                    (macro === data.defs.primitive.day      || macro.proxy && macro.original === data.defs.primitive.day)      ||
+                                    (macro === data.defs.primitive.dimen    || macro.proxy && macro.original === data.defs.primitive.dimen)    ||
+                                    (macro === data.defs.primitive.lccode   || macro.proxy && macro.original === data.defs.primitive.lccode)   ||
+                                    (macro === data.defs.primitive.mathcode || macro.proxy && macro.original === data.defs.primitive.mathcode) ||
+                                    (macro === data.defs.primitive.month    || macro.proxy && macro.original === data.defs.primitive.month)    ||
+                                    (macro === data.defs.primitive.muskip   || macro.proxy && macro.original === data.defs.primitive.muskip)   ||
+                                    (macro === data.defs.primitive.skip     || macro.proxy && macro.original === data.defs.primitive.skip)     ||
+                                    (macro === data.defs.primitive.time     || macro.proxy && macro.original === data.defs.primitive.time)     ||
+                                    (macro === data.defs.primitive.uccode   || macro.proxy && macro.original === data.defs.primitive.uccode)   ||
+                                    (macro === data.defs.primitive.year     || macro.proxy && macro.original === data.defs.primitive.year))) {
+
+                                    var expansion = expand(token, mouth);
+
+                                    if (expansion.length == 1 && expansion[0] === token && token.invalid) {
+                                        mouth.revert();
+                                        break;
+                                    }
+                                    mouth.queue.unshift.apply(mouth.queue, expansion);
+                                    continue;
+                                } else if (macro && (macro === data.defs.primitive.relax || macro.proxy && macro.original === data.defs.primitive.relax)) {
+                                    break;
+                                } else {
                                     mouth.revert();
                                     break;
                                 }
-
-                                var expansion = expand(token, mouth);
-
-                                if (expansion.length == 1 && expansion[0] === token && token.invalid) {
-                                    mouth.revert();
-                                    break;
-                                }
-                                mouth.queue.unshift.apply(mouth.queue, expansion);
-                                continue;
                             } else if (context == 'start' && token.cat == data.cats.whitespace) {
                                 // A regular whitespace token was found. Just ignore and continue;
                                 continue;
@@ -951,37 +951,36 @@
                             if (!token) break;
 
                             if (context == 'start' && (token.type == 'command' || token.type == 'character' && token.cat == data.cats.active)) {
-                                var macro = token.type == 'command' ? scopes.last.defs.primitive[token.name] || scopes.last.defs.macros[token.name] : scopes.last.defs.active[token.char];
+                                var macro = token.type == 'command' ? scopes.last.defs.primitive[token.name] || scopes.last.defs.macros[token.name] || scopes.last.registers.named[token.name] : scopes.last.defs.active[token.char];
 
-                                if (macro && (
-                                    (macro === data.defs.primitive.above           || macro.proxy && macro.original === data.defs.primitive.above)           ||
-                                    (macro === data.defs.primitive.abovewithdelims || macro.proxy && macro.original === data.defs.primitive.abovewithdelims) ||
-                                    (macro === data.defs.primitive.atop            || macro.proxy && macro.original === data.defs.primitive.atopwithdelims)  ||
-                                    (macro === data.defs.primitive.atopwithdelims  || macro.proxy && macro.original === data.defs.primitive.atopwithdelims)  ||
-                                    (macro === data.defs.primitive.over            || macro.proxy && macro.original === data.defs.primitive.over)            ||
-                                    (macro === data.defs.primitive.overwithdelims  || macro.proxy && macro.original === data.defs.primitive.overwithdelims)  ||
-                                    (macro === data.defs.primitive.begingroup      || macro.proxy && macro.original === data.defs.primitive.begingroup)      ||
-                                    (macro === data.defs.primitive.endgroup        || macro.proxy && macro.original === data.defs.primitive.endgroup)        ||
-                                    (macro === data.defs.primitive.left            || macro.proxy && macro.original === data.defs.primitive.left)            ||
-                                    (macro === data.defs.primitive.right           || macro.proxy && macro.original === data.defs.primitive.right)           ||
-                                    (macro === data.defs.primitive.edef            || macro.proxy && macro.original === data.defs.primitive.edef)            ||
-                                    (macro === data.defs.primitive.gdef            || macro.proxy && macro.original === data.defs.primitive.gdef)            ||
-                                    (macro === data.defs.primitive.xdef            || macro.proxy && macro.original === data.defs.primitive.xdef)            ||
-                                    (macro === data.defs.primitive.let             || macro.proxy && macro.original === data.defs.primitive.let)             ||
-                                    (macro === data.defs.primitive.futurelet       || macro.proxy && macro.original === data.defs.primitive.futurelet)       ||
-                                    (macro === data.defs.primitive.global          || macro.proxy && macro.original === data.defs.primitive.global))) {
+                                if (macro && (macro.register ||
+                                    (macro === data.defs.primitive.catcode  || macro.proxy && macro.original === data.defs.primitive.catcode)  ||
+                                    (macro === data.defs.primitive.count    || macro.proxy && macro.original === data.defs.primitive.count)    ||
+                                    (macro === data.defs.primitive.day      || macro.proxy && macro.original === data.defs.primitive.day)      ||
+                                    (macro === data.defs.primitive.dimen    || macro.proxy && macro.original === data.defs.primitive.dimen)    ||
+                                    (macro === data.defs.primitive.lccode   || macro.proxy && macro.original === data.defs.primitive.lccode)   ||
+                                    (macro === data.defs.primitive.mathcode || macro.proxy && macro.original === data.defs.primitive.mathcode) ||
+                                    (macro === data.defs.primitive.month    || macro.proxy && macro.original === data.defs.primitive.month)    ||
+                                    (macro === data.defs.primitive.muskip   || macro.proxy && macro.original === data.defs.primitive.muskip)   ||
+                                    (macro === data.defs.primitive.skip     || macro.proxy && macro.original === data.defs.primitive.skip)     ||
+                                    (macro === data.defs.primitive.time     || macro.proxy && macro.original === data.defs.primitive.time)     ||
+                                    (macro === data.defs.primitive.uccode   || macro.proxy && macro.original === data.defs.primitive.uccode)   ||
+                                    (macro === data.defs.primitive.year     || macro.proxy && macro.original === data.defs.primitive.year))) {
+
+                                    var expansion = expand(token, mouth);
+
+                                    if (expansion.length == 1 && expansion[0] === token && token.invalid) {
+                                        mouth.revert();
+                                        break;
+                                    }
+                                    mouth.queue.unshift.apply(mouth.queue, expansion);
+                                    continue;
+                                } else if (macro && (macro === data.defs.primitive.relax || macro.proxy && macro.original === data.defs.primitive.relax)) {
+                                    break;
+                                } else {
                                     mouth.revert();
                                     break;
                                 }
-
-                                var expansion = expand(token, mouth);
-
-                                if (expansion.length == 1 && expansion[0] === token && token.invalid) {
-                                    mouth.revert();
-                                    break;
-                                }
-                                mouth.queue.unshift.apply(mouth.queue, expansion);
-                                continue;
                             } else if (context == 'start' && token.cat == data.cats.whitespace) {
                                 continue;
                             } else if (context == 'start' && token.cat == data.cats.all && token.char == '-') {
@@ -996,16 +995,16 @@
                                     mouthContext = 'pre space';
                                     context = 'unit start'
                                 } else if (token.type == 'dimension') {
-                                    mu = token.em.value * 18;
+                                    mu = token.em.value / 65536 * 18;
                                     foundUnit = true;
                                 } else if (token.type == 'mu dimension') {
-                                    mu = token.mu.value;
+                                    mu = token.mu.value / 65536;
                                     foundUnit = true;
                                 } else if (token.type == 'glue') {
-                                    mu = token.start.em.value * 18;
+                                    mu = token.start.em.value / 65536 * 18;
                                     foundUnit = true;
                                 } else if (token.type == 'mu glue') {
-                                    mu = token.start.mu.value;
+                                    mu = token.start.mu.value / 65536;
                                     foundUnit = true;
                                 }
                                 foundFactor = true;
@@ -1015,7 +1014,7 @@
                                 context = 'unit start'
                             } else if (foundFactor && token.register && token.type == 'mu glue') {
                                 digits = parseFloat((digits + ' ').replace(' .', '.').replace('. ', '') || '0')
-                                mu = digits * token.start.mu.value;
+                                mu = digits * token.start.mu.value / 65536;
                                 foundUnit = true;
                                 break;
                             } else if (foundFactor && (token.char == 'm' || token.char == 'M')) {
@@ -1077,37 +1076,36 @@
                             if (!token && mouthContext == 'dimension') {
                                 mouthContext = 'factor'
                             } else if ((context == 'start' || context == 'signs' || context == 'post start' || context == 'stretch signs' || context == 'post stretch' || context == 'shrink signs') && (token.type == 'command' || token.type == 'character' && token.cat == data.cats.active)) {
-                                var macro = token.type == 'command' ? scopes.last.defs.primitive[token.name] || scopes.last.defs.macros[token.name] : scopes.last.defs.active[token.char];
+                                var macro = token.type == 'command' ? scopes.last.defs.primitive[token.name] || scopes.last.defs.macros[token.name] || scopes.last.registers.named[token.name] : scopes.last.defs.active[token.char];
 
-                                if (macro && (
-                                    (macro === data.defs.primitive.above           || macro.proxy && macro.original === data.defs.primitive.above)           ||
-                                    (macro === data.defs.primitive.abovewithdelims || macro.proxy && macro.original === data.defs.primitive.abovewithdelims) ||
-                                    (macro === data.defs.primitive.atop            || macro.proxy && macro.original === data.defs.primitive.atopwithdelims)  ||
-                                    (macro === data.defs.primitive.atopwithdelims  || macro.proxy && macro.original === data.defs.primitive.atopwithdelims)  ||
-                                    (macro === data.defs.primitive.over            || macro.proxy && macro.original === data.defs.primitive.over)            ||
-                                    (macro === data.defs.primitive.overwithdelims  || macro.proxy && macro.original === data.defs.primitive.overwithdelims)  ||
-                                    (macro === data.defs.primitive.begingroup      || macro.proxy && macro.original === data.defs.primitive.begingroup)      ||
-                                    (macro === data.defs.primitive.endgroup        || macro.proxy && macro.original === data.defs.primitive.endgroup)        ||
-                                    (macro === data.defs.primitive.left            || macro.proxy && macro.original === data.defs.primitive.left)            ||
-                                    (macro === data.defs.primitive.right           || macro.proxy && macro.original === data.defs.primitive.right)           ||
-                                    (macro === data.defs.primitive.edef            || macro.proxy && macro.original === data.defs.primitive.edef)            ||
-                                    (macro === data.defs.primitive.gdef            || macro.proxy && macro.original === data.defs.primitive.gdef)            ||
-                                    (macro === data.defs.primitive.xdef            || macro.proxy && macro.original === data.defs.primitive.xdef)            ||
-                                    (macro === data.defs.primitive.let             || macro.proxy && macro.original === data.defs.primitive.let)             ||
-                                    (macro === data.defs.primitive.futurelet       || macro.proxy && macro.original === data.defs.primitive.futurelet)       ||
-                                    (macro === data.defs.primitive.global          || macro.proxy && macro.original === data.defs.primitive.global))) {
+                                if (macro && (macro.register ||
+                                    (macro === data.defs.primitive.catcode  || macro.proxy && macro.original === data.defs.primitive.catcode)  ||
+                                    (macro === data.defs.primitive.count    || macro.proxy && macro.original === data.defs.primitive.count)    ||
+                                    (macro === data.defs.primitive.day      || macro.proxy && macro.original === data.defs.primitive.day)      ||
+                                    (macro === data.defs.primitive.dimen    || macro.proxy && macro.original === data.defs.primitive.dimen)    ||
+                                    (macro === data.defs.primitive.lccode   || macro.proxy && macro.original === data.defs.primitive.lccode)   ||
+                                    (macro === data.defs.primitive.mathcode || macro.proxy && macro.original === data.defs.primitive.mathcode) ||
+                                    (macro === data.defs.primitive.month    || macro.proxy && macro.original === data.defs.primitive.month)    ||
+                                    (macro === data.defs.primitive.muskip   || macro.proxy && macro.original === data.defs.primitive.muskip)   ||
+                                    (macro === data.defs.primitive.skip     || macro.proxy && macro.original === data.defs.primitive.skip)     ||
+                                    (macro === data.defs.primitive.time     || macro.proxy && macro.original === data.defs.primitive.time)     ||
+                                    (macro === data.defs.primitive.uccode   || macro.proxy && macro.original === data.defs.primitive.uccode)   ||
+                                    (macro === data.defs.primitive.year     || macro.proxy && macro.original === data.defs.primitive.year))) {
+
+                                    var expansion = expand(token, mouth);
+
+                                    if (expansion.length == 1 && expansion[0] === token && token.invalid) {
+                                        mouth.revert();
+                                        break;
+                                    }
+                                    mouth.queue.unshift.apply(mouth.queue, expansion);
+                                    continue;
+                                } else if (macro && (macro === data.defs.primitive.relax || macro.proxy && macro.original === data.defs.primitive.relax)) {
+                                    break;
+                                } else {
                                     mouth.revert();
                                     break;
                                 }
-
-                                var expansion = expand(token, mouth);
-
-                                if (expansion.length == 1 && expansion[0] === token && token.invalid) {
-                                    mouth.revert();
-                                    break;
-                                }
-                                mouth.queue.unshift.apply(mouth.queue, expansion);
-                                continue;
                             } else if ((context == 'start' || context == 'signs' || context == 'post start' || context == 'post stretch' || context == 'stretch signs' || context == 'shrink signs') && token.cat == data.cats.whitespace) {
                                 continue;
                             } else if ((context == 'start' || context == 'signs') && token.cat == data.cats.all && token.char == '-') {
@@ -1284,37 +1282,36 @@
                             if (!token && mouthContext == 'mu dimension') {
                                 mouthContext = 'factor'
                             } else if ((context == 'start' || context == 'signs' || context == 'post start' || context == 'stretch signs' || context == 'post stretch' || context == 'shrink signs') && (token.type == 'command' || token.type == 'character' && token.cat == data.cats.active)) {
-                                var macro = token.type == 'command' ? scopes.last.defs.primitive[token.name] || scopes.last.defs.macros[token.name] : scopes.last.defs.active[token.char];
+                                var macro = token.type == 'command' ? scopes.last.defs.primitive[token.name] || scopes.last.defs.macros[token.name] || scopes.last.registers.named[token.name] : scopes.last.defs.active[token.char];
 
-                                if (macro && (
-                                    (macro === data.defs.primitive.above           || macro.proxy && macro.original === data.defs.primitive.above)           ||
-                                    (macro === data.defs.primitive.abovewithdelims || macro.proxy && macro.original === data.defs.primitive.abovewithdelims) ||
-                                    (macro === data.defs.primitive.atop            || macro.proxy && macro.original === data.defs.primitive.atopwithdelims)  ||
-                                    (macro === data.defs.primitive.atopwithdelims  || macro.proxy && macro.original === data.defs.primitive.atopwithdelims)  ||
-                                    (macro === data.defs.primitive.over            || macro.proxy && macro.original === data.defs.primitive.over)            ||
-                                    (macro === data.defs.primitive.overwithdelims  || macro.proxy && macro.original === data.defs.primitive.overwithdelims)  ||
-                                    (macro === data.defs.primitive.begingroup      || macro.proxy && macro.original === data.defs.primitive.begingroup)      ||
-                                    (macro === data.defs.primitive.endgroup        || macro.proxy && macro.original === data.defs.primitive.endgroup)        ||
-                                    (macro === data.defs.primitive.left            || macro.proxy && macro.original === data.defs.primitive.left)            ||
-                                    (macro === data.defs.primitive.right           || macro.proxy && macro.original === data.defs.primitive.right)           ||
-                                    (macro === data.defs.primitive.edef            || macro.proxy && macro.original === data.defs.primitive.edef)            ||
-                                    (macro === data.defs.primitive.gdef            || macro.proxy && macro.original === data.defs.primitive.gdef)            ||
-                                    (macro === data.defs.primitive.xdef            || macro.proxy && macro.original === data.defs.primitive.xdef)            ||
-                                    (macro === data.defs.primitive.let             || macro.proxy && macro.original === data.defs.primitive.let)             ||
-                                    (macro === data.defs.primitive.futurelet       || macro.proxy && macro.original === data.defs.primitive.futurelet)       ||
-                                    (macro === data.defs.primitive.global          || macro.proxy && macro.original === data.defs.primitive.global))) {
+                                if (macro && (macro.register ||
+                                    (macro === data.defs.primitive.catcode  || macro.proxy && macro.original === data.defs.primitive.catcode)  ||
+                                    (macro === data.defs.primitive.count    || macro.proxy && macro.original === data.defs.primitive.count)    ||
+                                    (macro === data.defs.primitive.day      || macro.proxy && macro.original === data.defs.primitive.day)      ||
+                                    (macro === data.defs.primitive.dimen    || macro.proxy && macro.original === data.defs.primitive.dimen)    ||
+                                    (macro === data.defs.primitive.lccode   || macro.proxy && macro.original === data.defs.primitive.lccode)   ||
+                                    (macro === data.defs.primitive.mathcode || macro.proxy && macro.original === data.defs.primitive.mathcode) ||
+                                    (macro === data.defs.primitive.month    || macro.proxy && macro.original === data.defs.primitive.month)    ||
+                                    (macro === data.defs.primitive.muskip   || macro.proxy && macro.original === data.defs.primitive.muskip)   ||
+                                    (macro === data.defs.primitive.skip     || macro.proxy && macro.original === data.defs.primitive.skip)     ||
+                                    (macro === data.defs.primitive.time     || macro.proxy && macro.original === data.defs.primitive.time)     ||
+                                    (macro === data.defs.primitive.uccode   || macro.proxy && macro.original === data.defs.primitive.uccode)   ||
+                                    (macro === data.defs.primitive.year     || macro.proxy && macro.original === data.defs.primitive.year))) {
+
+                                    var expansion = expand(token, mouth);
+
+                                    if (expansion.length == 1 && expansion[0] === token && token.invalid) {
+                                        mouth.revert();
+                                        break;
+                                    }
+                                    mouth.queue.unshift.apply(mouth.queue, expansion);
+                                    continue;
+                                } else if (macro && (macro === data.defs.primitive.relax || macro.proxy && macro.original === data.defs.primitive.relax)) {
+                                    break;
+                                } else {
                                     mouth.revert();
                                     break;
                                 }
-
-                                var expansion = expand(token, mouth);
-
-                                if (expansion.length == 1 && expansion[0] === token && token.invalid) {
-                                    mouth.revert();
-                                    break;
-                                }
-                                mouth.queue.unshift.apply(mouth.queue, expansion);
-                                continue;
                             } else if ((context == 'start' || context == 'signs' || context == 'post start' || context == 'post stretch' || context == 'stretch signs' || context == 'shrink signs') && token.cat == data.cats.whitespace) {
                                 continue;
                             } else if ((context == 'start' || context == 'signs') && token.cat == data.cats.all && token.char == '-') {
@@ -1500,37 +1497,36 @@
                                 found = true;
                                 break;
                             } else if (context == 'start' && (token.type == 'command' || token.type == 'character' && token.cat == data.cats.active)) {
-                                var macro = token.type == 'command' ? scopes.last.defs.primitive[token.name] || scopes.last.defs.macros[token.name] : scopes.last.defs.active[token.char];
+                                var macro = token.type == 'command' ? scopes.last.defs.primitive[token.name] || scopes.last.defs.macros[token.name] || scopes.last.registers.named[token.name] : scopes.last.defs.active[token.char];
 
-                                if (macro && (
-                                    (macro === data.defs.primitive.above           || macro.proxy && macro.original === data.defs.primitive.above)           ||
-                                    (macro === data.defs.primitive.abovewithdelims || macro.proxy && macro.original === data.defs.primitive.abovewithdelims) ||
-                                    (macro === data.defs.primitive.atop            || macro.proxy && macro.original === data.defs.primitive.atopwithdelims)  ||
-                                    (macro === data.defs.primitive.atopwithdelims  || macro.proxy && macro.original === data.defs.primitive.atopwithdelims)  ||
-                                    (macro === data.defs.primitive.over            || macro.proxy && macro.original === data.defs.primitive.over)            ||
-                                    (macro === data.defs.primitive.overwithdelims  || macro.proxy && macro.original === data.defs.primitive.overwithdelims)  ||
-                                    (macro === data.defs.primitive.begingroup      || macro.proxy && macro.original === data.defs.primitive.begingroup)      ||
-                                    (macro === data.defs.primitive.endgroup        || macro.proxy && macro.original === data.defs.primitive.endgroup)        ||
-                                    (macro === data.defs.primitive.left            || macro.proxy && macro.original === data.defs.primitive.left)            ||
-                                    (macro === data.defs.primitive.right           || macro.proxy && macro.original === data.defs.primitive.right)           ||
-                                    (macro === data.defs.primitive.edef            || macro.proxy && macro.original === data.defs.primitive.edef)            ||
-                                    (macro === data.defs.primitive.gdef            || macro.proxy && macro.original === data.defs.primitive.gdef)            ||
-                                    (macro === data.defs.primitive.xdef            || macro.proxy && macro.original === data.defs.primitive.xdef)            ||
-                                    (macro === data.defs.primitive.let             || macro.proxy && macro.original === data.defs.primitive.let)             ||
-                                    (macro === data.defs.primitive.futurelet       || macro.proxy && macro.original === data.defs.primitive.futurelet)       ||
-                                    (macro === data.defs.primitive.global          || macro.proxy && macro.original === data.defs.primitive.global))) {
+                                if (macro && (macro.register ||
+                                    (macro === data.defs.primitive.catcode  || macro.proxy && macro.original === data.defs.primitive.catcode)  ||
+                                    (macro === data.defs.primitive.count    || macro.proxy && macro.original === data.defs.primitive.count)    ||
+                                    (macro === data.defs.primitive.day      || macro.proxy && macro.original === data.defs.primitive.day)      ||
+                                    (macro === data.defs.primitive.dimen    || macro.proxy && macro.original === data.defs.primitive.dimen)    ||
+                                    (macro === data.defs.primitive.lccode   || macro.proxy && macro.original === data.defs.primitive.lccode)   ||
+                                    (macro === data.defs.primitive.mathcode || macro.proxy && macro.original === data.defs.primitive.mathcode) ||
+                                    (macro === data.defs.primitive.month    || macro.proxy && macro.original === data.defs.primitive.month)    ||
+                                    (macro === data.defs.primitive.muskip   || macro.proxy && macro.original === data.defs.primitive.muskip)   ||
+                                    (macro === data.defs.primitive.skip     || macro.proxy && macro.original === data.defs.primitive.skip)     ||
+                                    (macro === data.defs.primitive.time     || macro.proxy && macro.original === data.defs.primitive.time)     ||
+                                    (macro === data.defs.primitive.uccode   || macro.proxy && macro.original === data.defs.primitive.uccode)   ||
+                                    (macro === data.defs.primitive.year     || macro.proxy && macro.original === data.defs.primitive.year))) {
+
+                                    var expansion = expand(token, mouth);
+
+                                    if (expansion.length == 1 && expansion[0] === token && token.invalid) {
+                                        mouth.revert();
+                                        break;
+                                    }
+                                    mouth.queue.unshift.apply(mouth.queue, expansion);
+                                    continue;
+                                } else if (macro && (macro === data.defs.primitive.relax || macro.proxy && macro.original === data.defs.primitive.relax)) {
+                                    break;
+                                } else {
                                     mouth.revert();
                                     break;
                                 }
-
-                                var expansion = expand(token, mouth);
-
-                                if (expansion.length == 1 && expansion[0] === token && token.invalid) {
-                                    mouth.revert();
-                                    break;
-                                }
-                                mouth.queue.unshift.apply(mouth.queue, expansion);
-                                continue;
                             } else if (context == 'start' && token.cat == data.cats.whitespace) {
                                 continue;
                             } else if (context == 'start' && token.register && token.type == 'integer') {
@@ -1609,37 +1605,36 @@
                             if (!token) break;
 
                             if (context == 'start' && (token.type == 'command' || token.type == 'character' && token.cat == data.cats.active)) {
-                                var macro = token.type == 'command' ? scopes.last.defs.primitive[token.name] || scopes.last.defs.macros[token.name] : scopes.last.defs.active[token.char];
+                                var macro = token.type == 'command' ? scopes.last.defs.primitive[token.name] || scopes.last.defs.macros[token.name] || scopes.last.registers.named[token.name] : scopes.last.defs.active[token.char];
 
-                                if (macro && (
-                                    (macro === data.defs.primitive.above           || macro.proxy && macro.original === data.defs.primitive.above)           ||
-                                    (macro === data.defs.primitive.abovewithdelims || macro.proxy && macro.original === data.defs.primitive.abovewithdelims) ||
-                                    (macro === data.defs.primitive.atop            || macro.proxy && macro.original === data.defs.primitive.atopwithdelims)  ||
-                                    (macro === data.defs.primitive.atopwithdelims  || macro.proxy && macro.original === data.defs.primitive.atopwithdelims)  ||
-                                    (macro === data.defs.primitive.over            || macro.proxy && macro.original === data.defs.primitive.over)            ||
-                                    (macro === data.defs.primitive.overwithdelims  || macro.proxy && macro.original === data.defs.primitive.overwithdelims)  ||
-                                    (macro === data.defs.primitive.begingroup      || macro.proxy && macro.original === data.defs.primitive.begingroup)      ||
-                                    (macro === data.defs.primitive.endgroup        || macro.proxy && macro.original === data.defs.primitive.endgroup)        ||
-                                    (macro === data.defs.primitive.left            || macro.proxy && macro.original === data.defs.primitive.left)            ||
-                                    (macro === data.defs.primitive.right           || macro.proxy && macro.original === data.defs.primitive.right)           ||
-                                    (macro === data.defs.primitive.edef            || macro.proxy && macro.original === data.defs.primitive.edef)            ||
-                                    (macro === data.defs.primitive.gdef            || macro.proxy && macro.original === data.defs.primitive.gdef)            ||
-                                    (macro === data.defs.primitive.xdef            || macro.proxy && macro.original === data.defs.primitive.xdef)            ||
-                                    (macro === data.defs.primitive.let             || macro.proxy && macro.original === data.defs.primitive.let)             ||
-                                    (macro === data.defs.primitive.futurelet       || macro.proxy && macro.original === data.defs.primitive.futurelet)       ||
-                                    (macro === data.defs.primitive.global          || macro.proxy && macro.original === data.defs.primitive.global))) {
+                                if (macro && (macro.register ||
+                                    (macro === data.defs.primitive.catcode  || macro.proxy && macro.original === data.defs.primitive.catcode)  ||
+                                    (macro === data.defs.primitive.count    || macro.proxy && macro.original === data.defs.primitive.count)    ||
+                                    (macro === data.defs.primitive.day      || macro.proxy && macro.original === data.defs.primitive.day)      ||
+                                    (macro === data.defs.primitive.dimen    || macro.proxy && macro.original === data.defs.primitive.dimen)    ||
+                                    (macro === data.defs.primitive.lccode   || macro.proxy && macro.original === data.defs.primitive.lccode)   ||
+                                    (macro === data.defs.primitive.mathcode || macro.proxy && macro.original === data.defs.primitive.mathcode) ||
+                                    (macro === data.defs.primitive.month    || macro.proxy && macro.original === data.defs.primitive.month)    ||
+                                    (macro === data.defs.primitive.muskip   || macro.proxy && macro.original === data.defs.primitive.muskip)   ||
+                                    (macro === data.defs.primitive.skip     || macro.proxy && macro.original === data.defs.primitive.skip)     ||
+                                    (macro === data.defs.primitive.time     || macro.proxy && macro.original === data.defs.primitive.time)     ||
+                                    (macro === data.defs.primitive.uccode   || macro.proxy && macro.original === data.defs.primitive.uccode)   ||
+                                    (macro === data.defs.primitive.year     || macro.proxy && macro.original === data.defs.primitive.year))) {
+
+                                    var expansion = expand(token, mouth);
+
+                                    if (expansion.length == 1 && expansion[0] === token && token.invalid) {
+                                        mouth.revert();
+                                        break;
+                                    }
+                                    mouth.queue.unshift.apply(mouth.queue, expansion);
+                                    continue;
+                                } else if (macro && (macro === data.defs.primitive.relax || macro.proxy && macro.original === data.defs.primitive.relax)) {
+                                    break;
+                                } else {
                                     mouth.revert();
                                     break;
                                 }
-
-                                var expansion = expand(token, mouth);
-
-                                if (expansion.length == 1 && expansion[0] === token && token.invalid) {
-                                    mouth.revert();
-                                    break;
-                                }
-                                mouth.queue.unshift.apply(mouth.queue, expansion);
-                                continue;
                             } else if (context == 'start' && token.cat == data.cats.whitespace) {
                                 continue;
                             } else if (context == 'start' && token.register && token.type == 'integer') {
@@ -1673,7 +1668,7 @@
                         });
                         mouth.finalize();
                         this.string = mouth.string;
-                        return new IntegerReg(digits * 65536, 'decimal');
+                        return new IntegerReg(digits * 65536, null, null, 'decimal');
                         break;
                 }
             }
@@ -1803,10 +1798,13 @@
                                     Scope: Scope,
                                     style: style
                                 });
+                                token.recognized = true;
                                 return Array.isArray(queuedToks) ? queuedToks : [];
                             } else {
                                 // It's a regular replacement macro. Substitute arguments in the replacement tokens
                                 // for parameters, and return an array of the tokens.
+
+                                token.recognized = true;
 
                                 var macro = scopes.last.defs.macros[token.name];
 
@@ -1856,7 +1854,6 @@
                                                 // original token should be returned as invalid.
                                                 if (!otherTok) {
                                                     token.invalid = true;
-                                                    token.recognized = true;
                                                     mouth.loadState(macroExpandSym);
                                                     return [token];
                                                 }
@@ -1898,7 +1895,6 @@
                                             // If there are no more tokens, return as an invalid command call.
                                             if (!otherTok) {
                                                 token.invalid = true;
-                                                recognized = true;
                                                 mouth.loadState(macroExpandSym);
                                                 return [token];
                                             }
@@ -1922,7 +1918,6 @@
                                             // The token does not match. The macro call does not match its definition and an
                                             // error would be thrown. Add an `invalid' property and return the initial token.
                                             token.invalid = true;
-                                            token.recognized = true;
                                             // Revert the mouth to its original state before expansion.
                                             mouth.loadState(macroExpandSym);
                                             return [token];
@@ -1999,6 +1994,7 @@
                                 Scope: Scope,
                                 style: style
                             });
+                            token.recognized = true;
                             return Array.isArray(queuedToks) ? queuedToks : [];
                         } else if (token.name in scopes.last.registers.named) {
                             // The token points to a register. Return the value of the register.
@@ -2027,11 +2023,13 @@
                                     Scope: Scope,
                                     style: style
                                 });
+                                token.recognized = true;
                                 return Array.isArray(queuedToks) ? queuedToks : [];
                             } else {
                                 // It's a macro. Do the same thing as what was done above for replacing a macro.
                                 // Comments are excluded here since everything is explained above.
 
+                                token.recognized = true;
                                 var macro = scopes.last.defs.active[token.char],
                                     activeExpandSym = Symbol();
                                 mouth.saveState(activeExpandSym);
@@ -2047,7 +2045,6 @@
                                                 var otherTok = mouth.eat('argument');
                                                 if (!otherTok) {
                                                     token.invalid = true;
-                                                    token.recognized = true;
                                                     mouth.loadState(activeExpandSym);
                                                     return [token];
                                                 }
@@ -2067,7 +2064,6 @@
                                             var otherTok = mouth.eat('argument');
                                             if (!otherTok) {
                                                 token.invalid = true;
-                                                token.recognized = true;
                                                 mouth.loadState(activeExpandSym);
                                                 return [token];
                                             }
@@ -2081,7 +2077,6 @@
                                         var otherTok = mouth.eat();
                                         if (!(tok && otherTok && tok.type == otherTok.type && tok.cat == otherTok.cat && tok.code == otherTok.code && tok.name == otherTok.name)) {
                                             token.invalid = true;
-                                            token.recognized = true;
                                             mouth.loadState(activeExpandSym);
                                             return [token];
                                         }
@@ -2144,7 +2139,7 @@
                 named: {}
             };
             this.cats = {}
-            this.mathcodes = parent.mathcodes.slice();
+            this.mathcodes = {};
             this.lc = {};
             this.uc = {};
             this.font = {}
@@ -2156,6 +2151,7 @@
             for (key in parent.uc) this.uc[key] = new IntegerReg(parent.uc[key]);
             for (key in parent.font) this.font[key] = parent.font[key];
             for (key in parent.cats) !isNaN(key) && (this.cats[key] = new IntegerReg(parent.cats[key]));
+            for (key in parent.mathcodes) !isNaN(key) && (this.mathcodes[key] = new IntegerReg(parent.mathcodes[key]));
             for (key in parent.registers.count) this.registers.count[key] = new IntegerReg(parent.registers.count[key]);
             for (key in parent.registers.dimen) this.registers.dimen[key] = new DimenReg(parent.registers.dimen[key]);
             for (key in parent.registers.skip) this.registers.skip[key] = new GlueReg(parent.registers.skip[key]);
@@ -2199,12 +2195,11 @@
         // This function helps in looking up what family a character would normally be a
         // part of. For example, "1" is a regular Ord character while "+" would be a Bin
         // character. "=" would be a Rel character, and so on.
-        function mathCodeOf(charCode) {
-            var char = String.fromCharCode(charCode);
-            for (var mathcode = 0; mathcode < 9; mathcode++) {
-                if (scopes.last.mathcodes[mathcode].includes(char)) return mathcode;
-            }
-            return 0;
+        function mathCodeOf(char) {
+            if (!char) return null;
+            var char = char.charCodeAt(0);
+            if (!(char in scopes.last.mathcodes)) return data.mathcodes.ord;
+            return scopes.last.mathcodes[char].value;
         }
 
 
@@ -2223,13 +2218,6 @@
         // id.
         var openGroups = [];
 
-        // `lastWasMath' is a boolean indicating if the last parsed token was a math shift
-        // token. If the style is "display", then it requires two consecutive math shift
-        // tokens to leave. If one is found, then this boolean is changed to true. If a-
-        // nother math shift token is found, and this boolean is true, it means it's time
-        // to exit math mode. If a non-math shift token is found, then the original is
-        // marked invalid and the parsing continues.
-        var lastWasMath = false;
         while (true) {
             var token = mouth.eat();
 
@@ -2264,41 +2252,27 @@
                 if (contexts.last == 'mathchoice') contexts.last.failed();
 
                 if (style == 'display') {
-                    if (lastWasMath) break;
-                    lastWasMath = token;
-                    var atom = {
-                        type: 'atom',
-                        atomType: 1,
-                        nucleus: {
-                            type: 'symbol',
-                            char: token.char,
-                            code: token.code
-                        },
-                        superscript: null,
-                        subscript: null,
-                        ignore: true
-                    }
+                    // The next token should also be a math shift token. If it's not, the current math
+                    // shift token is invalid.
+                    var next = mouth.eat();
 
-                    if (contexts.last == 'superscript') {
-                        for (var i = scopes.last.tokens.length - 1; i >= 0; i--) {
-                            if (scopes.last.tokens[i].type == 'atom') {
-                                scopes.last.tokens[i].superscript = [atom];
-                                break;
-                            }
-                        }
-                        contexts.pop();
-                    } else if (contexts.last == 'subscript') {
-                        for (var i = scopes.last.tokens.length - 1; i >= 0; i--) {
-                            if (scopes.last.tokens[i].type == 'atom') {
-                                scopes.last.tokens[i].subscript = [atom];
-                                break;
-                            }
-                        }
-                        contexts.pop();
-                    } else {
-                        scopes.last.tokens.push(atom);
-                    }
-                } else break;
+                    if (!next || next.type != 'character' || next.cat != data.cats.math) {
+                        // The next token wasn't a math shift token. Put the token back to be reparsed and
+                        // mark the current token as invalid.
+                        if (next) mouth.revert();
+                        mouth.queue.unshift({
+                            type: 'character',
+                            cat: data.cats.all,
+                            char: token.char,
+                            code: token.code,
+                            invalid: true
+                        });
+                    } else break;
+                } else {
+                    // If the style is in inline mode, only one math shift token is needed. Since this
+                    // one was found, the TeX has reached its end and the loop needs to break;
+                    break;
+                }
             } else if (token.type == 'character' && token.cat == data.cats.super) {
                 // A superscript character (usually ^) is used to modify the last atom. First the
                 // last atom is found, even if the last token in the list is not an atom. Once that
@@ -2309,9 +2283,9 @@
                 if (contexts.last == 'mathchoice') contexts.last.failed();
 
                 // Keep track of the atom to add superscript to.
-                var atom;
+                var atom = null;
                 for (var i = scopes.last.tokens.length - 1; i >= 0; i--) {
-                    if (scopes.last.tokens[i].type == 'atom') {
+                    if (scopes.last.tokens[i].type == 'atom' && !scopes.last.tokens[i].ignore) {
                         atom = scopes.last.tokens[i];
                         break;
                     }
@@ -2347,30 +2321,63 @@
                 } else if (contexts.last == 'superscript') {
                     // If a superscript context is already open, then the current superscript token is
                     // invalid.
-                    atom.superscript = {
-                        type: 'symbol',
-                        char: token.char,
-                        code: token.code,
-                        invalid: true
-                    }
+                    atom.superscript = [{
+                        type: 'atom',
+                        atomType: 0,
+                        nucleus: {
+                            type: 'symbol',
+                            char: token.char,
+                            code: token.code,
+                            invalid: true
+                        },
+                        superscript: null,
+                        subscript: null
+                    }];
                     contexts.pop();
                 } else if (contexts.last == 'subscript') {
                     // Same for subscript.
-                    atom.subscript = {
-                        type: 'symbol',
-                        char: token.char,
-                        code: token.code,
-                        invalid: true
-                    }
+                    atom.subscript = [{
+                        type: 'atom',
+                        atomType: 0,
+                        nucleus: {
+                            type: 'symbol',
+                            char: token.char,
+                            code: token.code,
+                            invalid: true
+                        },
+                        superscript: null,
+                        subscript: null
+                    }];
                     contexts.pop();
-                } else contexts.push('superscript');
+                } else {
+                    // A temporary token is added to the list. If the end of the TeX is encountered
+                    // after this token (i.e. there was no token to superscript), the token is marked
+                    // as invalid.
+                    var token = {
+                        type: 'atom',
+                        atomType: 0,
+                        nucleus: {
+                            type: 'symbol',
+                            char: token.char,
+                            code: token.code
+                        },
+                        superscript: null,
+                        subscript: null,
+                        ignore: true
+                    };
+                    scopes.last.tokens.push(token);
+                    contexts.push({
+                        toString: function() {return 'superscript'},
+                        token: token
+                    });
+                }
             } else if (token.type == 'character' && token.cat == data.cats.sub) {
                 // Do the same thing as what was done for superscript atoms.
                 if (contexts.last == 'mathchoice') contexts.last.failed();
 
-                var atom;
+                var atom = null;
                 for (var i = scopes.last.tokens.length - 1; i >= 0; i--) {
-                    if (scopes.last.tokens[i].type == 'atom') {
+                    if (scopes.last.tokens[i].type == 'atom' && !scopes.last.tokens[i].ignore) {
                         atom = scopes.last.tokens[i];
                         break;
                     }
@@ -2400,22 +2407,52 @@
                         subscript: null
                     });
                 } else if (contexts.last == 'superscript') {
-                    atom.superscript = {
-                        type: 'symbol',
-                        char: token.char,
-                        code: token.code,
-                        invalid: true
-                    }
+                    atom.subscript = [{
+                        type: 'atom',
+                        atomType: 0,
+                        nucleus: {
+                            type: 'symbol',
+                            char: token.char,
+                            code: token.code,
+                            invalid: true
+                        },
+                        superscript: null,
+                        subscript: null
+                    }];
                     contexts.pop();
                 } else if (contexts.last == 'subscript') {
-                    atom.subscript = {
-                        type: 'symbol',
-                        char: token.char,
-                        code: token.code,
-                        invalid: true
-                    }
+                    atom.subscript = [{
+                        type: 'atom',
+                        atomType: 0,
+                        nucleus: {
+                            type: 'symbol',
+                            char: token.char,
+                            code: token.code,
+                            invalid: true
+                        },
+                        superscript: null,
+                        subscript: null
+                    }];
                     contexts.pop();
-                } else contexts.push('subscript');
+                } else {
+                    var token = {
+                        type: 'atom',
+                        atomType: 0,
+                        nucleus: {
+                            type: 'symbol',
+                            char: token.char,
+                            code: token.code
+                        },
+                        superscript: null,
+                        subscript: null,
+                        ignore: true
+                    };
+                    scopes.last.tokens.push(token);
+                    contexts.push({
+                        toString: function() {return 'subscript'},
+                        token: token
+                    });
+                }
             } else if (token.type == 'character' && token.cat == data.cats.open) {
                 // A token was found that opens a new group and scope. Add a temporary token that
                 // can be marked invalid if the group is never closed.
@@ -2451,8 +2488,6 @@
                         invalid: true
                     });
                 } else {
-                    token.opener = openGroups[openGroups.length - 1];
-                    token.opener.closer = token;
                     openGroups.pop();
 
                     // A scope is about to be closed. All its tokes need to be added to its parent's
@@ -2480,7 +2515,7 @@
                     if (contexts.last == 'superscript') {
                         scopes.pop();
                         for (var i = scopes.last.tokens.length - 1; i >= 0; i--) {
-                            if (scopes.last.tokens[i].type == 'atom') {
+                            if (scopes.last.tokens[i].type == 'atom' && !scopes.last.tokens[i].ignore) {
                                 scopes.last.tokens[i].superscript = tokens;
                                 break;
                             }
@@ -2489,7 +2524,7 @@
                     } else if (contexts.last == 'subscript') {
                         scopes.pop();
                         for (var i = scopes.last.tokens.length - 1; i >= 0; i--) {
-                            if (scopes.last.tokens[i].type == 'atom') {
+                            if (scopes.last.tokens[i].type == 'atom' && !scopes.last.tokens[i].ignore) {
                                 scopes.last.tokens[i].subscript = tokens;
                                 break;
                             }
@@ -2730,14 +2765,14 @@
                 var char = {
                     type: 'symbol',
                     char: token.char,
-                    code: token.code
+                    code: token.code,
+                    invalid: token.invalid
                 }
-                if (token.invalid) char.invalid = true;
 
                 // The mathcode of the character is gotten first. If it's mathcode 8, then its
-                // active character definition i used instead (pretty much only for the apostrophe
+                // active character definition is used instead (pretty much only for the apostrophe
                 // character).
-                var mathcode = mathCodeOf(char.code);
+                var mathcode = token.forcedMathCode + 1 ? token.forcedMathCode : mathCodeOf(char.char);
 
                 // If a token is part of an invalid command name, it may be marked as `recognized',
                 // which indicated that the command exists, but wasn't used correctly. These types
@@ -2748,13 +2783,13 @@
                 if (mathcode == data.mathcodes.active) {
                     // A character with a mathcode of 8 is replaced with its active character defin-
                     // ition.
-                    mouth.queue.unshift({
-                        type: 'character',
-                        cat: data.cats.active,
-                        char: char.char,
-                        code: char.code
-                    });
-                    continue;
+                    if (scopes.last.defs.active[token.char]) {
+                        mouth.queue.unshift.apply(mouth.queue, (scopes.last.defs.active[token.char].replacement || scopes.last.defs.active[token.char].original.replacement).slice());
+                        continue;
+                    } else {
+                        token.invalid = char.invalid = true;
+                        mathcode = 0;
+                    }
                 }
 
                 if (contexts.last == 'superscript') {
@@ -2762,7 +2797,7 @@
                     // single characters. That's because when they're being rendered, it's easier to
                     // just render an entire atom than to shorten it into just one character.
                     for (var i = scopes.last.tokens.length - 1; i >= 0; i--) {
-                        if (scopes.last.tokens[i].type == 'atom') {
+                        if (scopes.last.tokens[i].type == 'atom' && !scopes.last.tokens[i].ignore) {
                             scopes.last.tokens[i].superscript = [{
                                 type: 'atom',
                                 atomType: mathcode,
@@ -2777,7 +2812,7 @@
                 } else if (contexts.last == 'subscript') {
                     // Do the same thing for subscripts.
                     for (var i = scopes.last.tokens.length - 1; i >= 0; i--) {
-                        if (scopes.last.tokens[i].type == 'atom') {
+                        if (scopes.last.tokens[i].type == 'atom' && !scopes.last.tokens[i].ignore) {
                             scopes.last.tokens[i].subscript = [{
                                 type: 'atom',
                                 atomType: mathcode,
@@ -2818,10 +2853,18 @@
 
                     if (!integer) mouth.loadState(regAssignment);
                     else {
-                        // First, the original token is saved.
+                        // First, a check is made to ensure the new value is within the register's allowed
+                        // range of values (for a normal count register, that's between [-9007199254740991,
+                        // 9007199254740991]. For a catcode register though, it's only between [0, 8].
+                        if (integer.value < token.min || integer.value > token.max) {
+                            mouth.loadState(regAssignment);
+                            continue;
+                        }
+
+                        // Now, the original token is saved.
                         var oldTok = token;
                         // Then, if \global is active, all the registers from the current scope up to the
-                        // global on are all changed to the new value. If \global is inactive, nothing
+                        // global one are all changed to the new value. If \global is inactive, nothing
                         // happens.
                         if (prefixedToggles.global && scopes.last.registers.named.globaldefs.value >= 0 || scopes.last.registers.named.globaldefs.value > 0) {
                             while (token.parent) {
@@ -2923,8 +2966,6 @@
                 continue;
             }
 
-            if (lastWasMath) lastWasMath.invalid = true;
-
             // At this point, any toggles should have been resolved. If there are any toggles
             // still on after a token was already parsed, then that toggle is invalid.
             for (var toggle in prefixedToggles) {
@@ -2935,6 +2976,15 @@
             }
         }
 
+
+        // Now that the end of the TeX has been reached, an unclosed sub/superscript con-
+        // text means a sub/superscript token wasn't found.
+        if (contexts.last == 'superscript' || contexts.last == 'subscript') {
+            contexts.last.token.invalid = true;
+            contexts.last.token.ignore = false;
+        }
+
+
         // Now, all the unclosed scopes need to be closed so that they all collapse into
         // one group of tokens.
         while (scopes.last != scopes[0]) {
@@ -2944,7 +2994,7 @@
             if (contexts.last == 'superscript') {
                 scopes.pop();
                 for (var i = scopes.last.tokens.length - 1; i >= 0; i--) {
-                    if (scopes.last.tokens[i].type == 'atom') {
+                    if (scopes.last.tokens[i].type == 'atom' && !scopes.last.tokens[i].ignore) {
                         scopes.last.tokens[i].superscript = tokens;
                         break;
                     }
@@ -2953,7 +3003,7 @@
             } else if (contexts.last == 'subscript') {
                 scopes.pop();
                 for (var i = scopes.last.tokens.length - 1; i >= 0; i--) {
-                    if (scopes.last.tokens[i].type == 'atom') {
+                    if (scopes.last.tokens[i].type == 'atom' && !scopes.last.tokens[i].ignore) {
                         scopes.last.tokens[i].subscript = tokens;
                         break;
                     }
@@ -3069,10 +3119,73 @@
         }
         removeIgnored(scopes[0].tokens);
 
+        // Math family tokens like \mathbin and \overline are resolved here.
+        function resolveFamilies(tokens) {
+            for (var i = 0, l = tokens.length; i < l; i++) {
+                if (tokens[i].type == 'family modifier') {
+                    if (tokens[i + 1] && tokens[i + 1].type == 'atom') {
+                        tokens.splice(i, 2, {
+                            type: 'atom',
+                            atomType: tokens[i].value,
+                            nucleus: [tokens[i + 1]],
+                            superscript: tokens[i + 1].superscript,
+                            subscript: tokens[i + 1].subscript
+                        });
+                        tokens[i].nucleus[0].superscript = null;
+                        tokens[i].nucleus[0].subscript = null;
+                        l = tokens.length;
+                        i--;
+                    } else {
+                        var toks = (tokens[i].token.type == 'command' ? tokens[i].token.escapeChar + tokens[i].token.name : tokens[i].token.char).split('').map(function(element) {
+                            return {
+                                type: 'atom',
+                                atomType: 0,
+                                nucleus: {
+                                    type: 'symbol',
+                                    char: element,
+                                    code: element.charCodeAt(0),
+                                    invalid: true
+                                },
+                                superscript: null,
+                                subscript: null
+                            };
+                        });
+                        tokens[i] = {
+                            type: 'atom',
+                            atomType: 0,
+                            nucleus: toks,
+                            superscript: null,
+                            subscript: null
+                        };
+                    }
+                } else if (tokens[i].type == 'fraction') {
+                    resolveFamilies(tokens[i].numerator);
+                    resolveFamilies(tokens[i].denominator);
+                } else if (tokens[i].type == 'table') {
+                    for (var i = 0, l = tokens[i].cellData.length; i < l; i++) {
+                        for (var n = 0, j = tokens[i].cellData[i].length; n < j; n++) {
+                            resolveFamilies(tokens[i][n].content);
+                        }
+                    }
+                } else if (tokens[i].type == 'atom') {
+                    if (Array.isArray(tokens[i].nucleus)) resolveFamilies(tokens[i].nucleus);
+                    if (Array.isArray(tokens[i].superscript)) resolveFamilies(tokens[i].superscript);
+                    if (Array.isArray(tokens[i].subscript)) resolveFamilies(tokens[i].subscript);
+                } else if (tokens[i].type == 'mathchoice') {
+                    resolveFamilies(tokens[i].groups);
+                }
+            }
+        }
+        resolveFamilies(scopes[0].tokens);
+
         // Now, "accent modifier" tokens are looked for. If the next token is an atom, the
         // entire nucleus is wrapped into an Acc atom and the "accent modifier" token is
         // removed. If the next token is NOT an atom, the "accent modifier" token is re-
-        // placed with an invalid command atom.
+        // placed with an invalid command atom. The reason this comes after family modifi-
+        // ers is because it allows for constructions like "\acute\lim", which expands to
+        // "\accent"B4 \mathop{ ... }". The \mathop is evaluated first and is treated all
+        // as one atom by the \accent instead of treating it as a family modifier followed
+        // by an atom.
         function resolveAccents(tokens) {
             for (var i = 0, l = tokens.length; i < l; i++) {
                 if (tokens[i].type == 'accent modifier') {
@@ -3132,65 +3245,6 @@
             }
         }
         resolveAccents(scopes[0].tokens);
-
-        // Math family tokens like \mathbin and \overline are resolved here.
-        function resolveFamilies(tokens) {
-            for (var i = 0, l = tokens.length; i < l; i++) {
-                if (tokens[i].type == 'family modifier') {
-                    if (tokens[i + 1] && tokens[i + 1].type == 'atom') {
-                        tokens.splice(i, 2, {
-                            type: 'atom',
-                            atomType: tokens[i].value,
-                            nucleus: [tokens[i + 1]],
-                            superscript: tokens[i + 1].superscript,
-                            subscript: tokens[i + 1].subscript
-                        });
-                        tokens[i].nucleus[0].superscript = null;
-                        tokens[i].nucleus[0].subscript = null;
-                        l = tokens.length;
-                        i--;
-                    } else {
-                        var toks = (tokens[i].token.type == 'command' ? tokens[i].token.escapeChar + tokens[i].token.name : tokens[i].token.char).split('').map(function(element) {
-                            return {
-                                type: 'atom',
-                                atomType: 0,
-                                nucleus: {
-                                    type: 'symbol',
-                                    char: element,
-                                    code: element.charCodeAt(0),
-                                    invalid: true
-                                },
-                                superscript: null,
-                                subscript: null
-                            };
-                        });
-                        tokens[i] = {
-                            type: 'atom',
-                            atomType: 0,
-                            nucleus: toks,
-                            superscript: null,
-                            subscript: null
-                        };
-                    }
-                } else if (tokens[i].type == 'fraction') {
-                    resolveFamilies(tokens[i].numerator);
-                    resolveFamilies(tokens[i].denominator);
-                } else if (tokens[i].type == 'table') {
-                    for (var i = 0, l = tokens[i].cellData.length; i < l; i++) {
-                        for (var n = 0, j = tokens[i].cellData[i].length; n < j; n++) {
-                            resolveFamilies(tokens[i][n].content);
-                        }
-                    }
-                } else if (tokens[i].type == 'atom') {
-                    if (Array.isArray(tokens[i].nucleus)) resolveFamilies(tokens[i].nucleus);
-                    if (Array.isArray(tokens[i].superscript)) resolveFamilies(tokens[i].superscript);
-                    if (Array.isArray(tokens[i].subscript)) resolveFamilies(tokens[i].subscript);
-                } else if (tokens[i].type == 'mathchoice') {
-                    resolveFamilies(tokens[i].groups);
-                }
-            }
-        }
-        resolveFamilies(scopes[0].tokens);
 
         // Limit modifiers (\displaylimits, \limits, \nolimits) are resolved here.
         function resolveLimits(tokens) {
@@ -3289,24 +3343,96 @@
                         };
                     }
                 } else if (tokens[i].type == 'fraction') {
-                    resolveFamilies(tokens[i].numerator);
-                    resolveFamilies(tokens[i].denominator);
+                    resolveBoxes(tokens[i].numerator);
+                    resolveBoxes(tokens[i].denominator);
                 } else if (tokens[i].type == 'table') {
                     for (var i = 0, l = tokens[i].cellData.length; i < l; i++) {
                         for (var n = 0, j = tokens[i].cellData[i].length; n < j; n++) {
-                            resolveFamilies(tokens[i][n].content);
+                            resolveBoxes(tokens[i][n].content);
                         }
                     }
                 } else if (tokens[i].type == 'atom') {
-                    if (Array.isArray(tokens[i].nucleus)) resolveFamilies(tokens[i].nucleus);
-                    if (Array.isArray(tokens[i].superscript)) resolveFamilies(tokens[i].superscript);
-                    if (Array.isArray(tokens[i].subscript)) resolveFamilies(tokens[i].subscript);
+                    if (Array.isArray(tokens[i].nucleus)) resolveBoxes(tokens[i].nucleus);
+                    if (Array.isArray(tokens[i].superscript)) resolveBoxes(tokens[i].superscript);
+                    if (Array.isArray(tokens[i].subscript)) resolveBoxes(tokens[i].subscript);
                 } else if (tokens[i].type == 'mathchoice') {
                     resolveBoxes(tokens[i].groups);
                 }
             }
         }
         resolveBoxes(scopes[0].tokens);
+
+        // Now, to help with later processing and to prevent unnecessary nesting, each atom
+        // so far is iterated over. If its nucleus is a single atom with no sub/superscript
+        // (i.e. it was produced by something like "{{atom}}"), then the nucleus is "moved"
+        // up to the parent atom's nucleus. This only applies to atoms whose types are con-
+        // sidered unimportant, like Ord, Rel, Op, etc. If an Acc atom though, for example,
+        // is found, it stays as an Acc atom so that it doesn't lose its accent. Op atoms
+        // are still considered special enough to not be removed if there \limits property
+        // is not false.
+        function collapseAtoms(tokens) {
+            for (var i = 0, l = tokens.length; i < l; i++) {
+                if (tokens[i].type == 'atom') {
+                    if (Array.isArray(tokens[i].nucleus) && tokens[i].nucleus.length == 1) {
+                        if ([0,2,3,4,5,6,'inner'].includes(tokens[i].nucleus[0].atomType)) {
+                            if (!tokens[i].nucleus[0].superscript && !tokens[i].nucleus[0].subscript) {
+                                tokens[i].nucleus = tokens[i].nucleus[0].nucleus;
+                                i--;
+                                continue;
+                            } else if (!tokens[i].superscript && !tokens[i].subscript) {
+                                tokens[i].superscript = tokens[i].nucleus[0].superscript;
+                                tokens[i].subscript = tokens[i].nucleus[0].subscript;
+                                tokens[i].nucleus = tokens[i].nucleus[0].nucleus;
+                                i--;
+                                continue;
+                            }
+                        } else if (tokens[i].nucleus[0].atomType == 7 && tokens[i].atomType == 0) {
+                            if (!tokens[i].nucleus[0].superscript && !tokens[i].nucleus[0].subscript) {
+                                tokens[i].nucleus = tokens[i].nucleus[0].nucleus;
+                                tokens[i].atomType = 7;
+                                i--;
+                                continue;
+                            } else if (!tokens[i].superscript && !tokens[i].subscript) {
+                                tokens[i].superscript = tokens[i].nucleus[0].superscript;
+                                tokens[i].subscript = tokens[i].nucleus[0].subscript;
+                                tokens[i].nucleus = tokens[i].nucleus[0].nucleus;
+                                tokens[i].atomType = 7;
+                                i--;
+                                continue;
+                            }
+                        } else if (tokens[i].nucleus[0].atomType == 1) {
+                            if (!tokens[i].nucleus[0].superscript && !tokens[i].nucleus[0].subscript) {
+                                tokens[i].nucleus = tokens[i].nucleus[0].nucleus;
+                                i--;
+                                continue;
+                            } else if (!tokens[i].superscript && !tokens[i].subscript && !tokens[i].nucleus[0].limits) {
+                                tokens[i].superscript = tokens[i].nucleus[0].superscript;
+                                tokens[i].subscript = tokens[i].nucleus[0].subscript;
+                                tokens[i].nucleus = tokens[i].nucleus[0].nucleus;
+                                i--;
+                                continue;
+                            }
+                        }
+                    }
+
+                    if (Array.isArray(tokens[i].nucleus)) collapseAtoms(tokens[i].nucleus);
+                    if (Array.isArray(tokens[i].superscript)) collapseAtoms(tokens[i].superscript);
+                    if (Array.isArray(tokens[i].subscript)) collapseAtoms(tokens[i].subscript);
+                } else if (tokens[i].type == 'fraction') {
+                    collapseAtoms(tokens[i].numerator);
+                    collapseAtoms(tokens[i].denominator);
+                } else if (tokens[i].type == 'table') {
+                    for (var i = 0, l = tokens[i].cellData.length; i < l; i++) {
+                        for (var n = 0, j = tokens[i].cellData[i].length; n < j; n++) {
+                            collapseAtoms(tokens[i][n].content);
+                        }
+                    }
+                } else if (tokens[i].type == 'mathchoice') {
+                    collapseAtoms(tokens[i].groups);
+                }
+            }
+        }
+        collapseAtoms(scopes[0].tokens);
 
         mouth.finalize();
 
@@ -3389,6 +3515,7 @@
             }
         }
         for (var key in scope.cats) data.cats[key].value = scope.cats[key].value;
+        for (var key in scope.mathcodes) data.mathcodes[key].value = scope.mathcodes[key].value;
         for (var key in scope.uc) data.uc[key].value = scope.uc[key].value;
         for (var key in scope.lc) data.lc[key].value = scope.lc[key].value;
     }
@@ -3448,6 +3575,10 @@
                 empty.style.display = 'inline-flex';
                 empty.displayedStyle = style;
                 empty.crampedStyle = cramped;
+                empty.renderedDepth = 0;
+                empty.renderedHeight = 0;
+                parent.renderedHeight = parent.renderedHeight || 0;
+                parent.renderedDepth = parent.renderedDepth || 0;
                 parent.appendChild(empty);
                 return;
             }
@@ -3583,7 +3714,8 @@
                                 script: 2,
                                 scriptscript: 3
                             })[style]];
-                            tokens.splice(i, 1, atom);
+                            tokens.splice.bind(tokens, i, 1).apply(tokens, atom.nucleus);
+                            l += atom.nucleus.length - 1;
                             i--;
                             return [i,l];
                         } else return parse1(4, i, l);
@@ -3656,9 +3788,8 @@
                             token.div.style.whiteSpace = 'nowrap';
 
                             // A fraction's bar is always supposed to be centered on the line, even if the num-
-                            // erator is five times as tall as the denominator. The center that's used here
-                            // is 0.5em higher than the bottom of the font's bottom line. To get that, we take
-                            // away the baseline height (`fontTeX.fontDimen.baselineHeightOf') from 0.5.
+                            // erator is five times as tall as the denominator. The "center of the line" is as-
+                            // sumed to be half the ex height of the font (the same as vertical-align: middle).
 
                             var numer = document.createElement('div'),
                                 denom = document.createElement('div');
@@ -3721,15 +3852,20 @@
                                 numer.style.fontSize = denom.style.fontSize = '.707106781em';
                                 numer.style.paddingTop = 'calc(.707106781em + ' + unscaledBarWidth + ' / 2)';
                                 numer.style.top = 'calc(-.707106781em - ' + unscaledBarWidth + ' / 2)';
-                                denom.style.top = 'calc(' + (denomHeight - .707106781) + 'em + ' + unscaledBarWidth + '/ 2)';
+                                denom.style.top = 'calc(' + (denomHeight - .707106781) + 'em + ' + unscaledBarWidth + '/ 2 - ' + denomHeight + 'em)';
                                 token.div.style.paddingBottom = 'calc(' + (denom.renderedHeight - .5) + 'em + ' + barWidth + ' / 2)'
                             } else {
                                 numer.style.fontSize = denom.style.fontSize = '';
                                 numer.style.paddingTop = 'calc(.5em + ' + barWidth + ' / 2)';
                                 numer.style.top = 'calc(-.5em - ' + barWidth + ' / 2)';
-                                denom.style.top = 'calc(' + (denomHeight - .5) + 'em + ' + barWidth + '/ 2)';
+                                denom.style.top = 'calc(' + (denomHeight - .5) + 'em + ' + barWidth + '/ 2 - ' + denomHeight + 'em)';
                                 token.div.style.paddingBottom = 'calc(' + (denomHeight - .5) + 'em + ' + barWidth + ' / 2)'
                             }
+
+                            // If the denominator is big enough, it may affect the height of the overall frac-
+                            // tion, which is not what we want. To prevent that, we have to set its height to
+                            // 0.
+                            denom.style.height = 0;
 
                             var thinner = numerWidth > denomWidth ? denom : numer,
                                 thicker = numerWidth > denomWidth ? numer : denom;
@@ -3764,12 +3900,11 @@
                             bar.style.display = 'inline-block';
                             bar.style.height = 0;
                             widthCont.style.display = 'inline-block';
-                            widthCont.style.opacity = 0;
+                            widthCont.style.visibility = 'hidden';
                             barCont.style.webkitUserSelect =
                                 barCont.style.mozUserSelect =
                                 barCont.style.msUserSelect =
                                 barCont.style.userSelect = 'none';
-                            barCont.style.pointerEvents = 'none';
                             widthCont.appendChild(noWrap(thicker.cloneNode(true)));
                             bar.appendChild(widthCont);
                             barCont.appendChild(bar);
@@ -3856,7 +3991,7 @@
                             cloneContainer.style.height = 0;
                             cloneContainer.style.verticalAlign = 'middle';
                             cloneContainer.style.display = 'inline-block';
-                            cloneContainer.style.opacity = 0;
+                            cloneContainer.style.visibility = 'hidden';
                             cloneContainer.style.webkitUserSelect =
                                 cloneContainer.style.mozUserSelect =
                                 cloneContainer.style.msUserSelect =
@@ -3865,12 +4000,10 @@
                                 heightContainer.style.mozUserSelect =
                                 heightContainer.style.msUserSelect =
                                 heightContainer.style.userSelect = 'none';
-                            cloneContainer.style.pointerEvents = 'none';
                             thinContainer.style.display = 'inline-block';
                             heightContainer.style.display = 'inline-block';
                             heightContainer.style.width = 0;
-                            heightContainer.style.pointerEvents = 'none';
-                            heightContainer.style.opacity = 0;
+                            heightContainer.style.visibility = 'hidden';
                             flexContainer.style.position = 'absolute';
                             startGrower.style.flexGrow = endGrower.style.flexGrow = startGrower.style.flexShrink = endGrower.style.flexShrink = 1;
                             thinner.style.width = flexContainer.style.left = flexContainer.style.right = flexContainer.style.top = 0;
@@ -4201,7 +4334,8 @@
 
                     case 9:
                         // This step isn't in regular TeX. This is where tables are handled. Plain TeX
-                        // doesn't even have tables in math mode.
+                        // doesn't even have tables in math mode (it does them in horizontal mode and
+                        // places the math material inside it).
                         parse1(10, i, l);
                         break;
 
@@ -4215,7 +4349,7 @@
                         token.div.style.display = 'inline-block';
                         token.div.style.whiteSpace = 'nowrap';
                         token.div.renderedHeight = 0;
-                        token.div.renderedDepth = 0;
+                        token.div.renderedDepth = -.5;
                         if (token.invalid) {
                             if (token.nucleus && token.nucleus.type == 'symbol') token.nucleus.invalid = true;
                             else if (token.nucleus) {
@@ -4226,15 +4360,60 @@
                             if (token.superscript) token.superscript[0].invalid = true;
                             if (token.subscript) token.subscript[0].invalid = true;
                         }
+
+                        // Most atoms have been collapsed so that "{{{a}}}" will just be recognized as "a".
+                        // Instead of being its own atom and needing to make its own box, it can be recog-
+                        // nized as a single symbol. That means less rendering and Acc atoms can adjust
+                        // their spacing to make the accent appear more "on top" of the symbol. There was
+                        // one exception though: Op atom with their limits set to "display" were kept since
+                        // we didn't yet know if their scripts would be rendered in display mode or inline
+                        // mode. Now that those have been resolved, we can get rid of unnecessary atom
+                        // wrapping around them.
+                        if ([0,1,2,3,4,5,6,'inner'].includes(token.atomType) && token.nucleus && token.nucleus.length == 1
+                            && token.nucleus[0].atomType == 1 && !token.nucleus[0].limits && !token.superscript && !token.subscript) {
+
+                            token.superscript = token.nucleus[0].superscript;
+                            token.subscript = token.nucleus[0].subscript;
+                            token.nucleus = token[0].nucleus.nucleus;
+                        }
+
+
+                        // This value determined by what factor an atom needs to be scaled to look the
+                        // appropriate size in the current context. A \displaystyle atom for example being
+                        // rendered in a \scriptscript style box needs to have twice the normal font size
+                        // to appear the same size relative to other \displaystyle atoms.
+                        var multiplier = ({
+                            display:      {display:           1, text:           1, script: 0.707106781, scriptscript:         .5},
+                            text:         {display:           1, text:           1, script: 0.707106781, scriptscript:         .5},
+                            script:       {display: 1.414213562, text: 1.414213562, script:           1, scriptscript: .707106781},
+                            scriptscript: {display:           2, text:           2, script: 1.414213562, scriptscript:          1}
+                        })[flex.displayedStyle][style];
+
+
                         if (token.nucleus && token.nucleus.type == 'symbol') {
-                            // If the atom's nucleus is a line break, (probably produced by "\\"), it should
-                            // break the flex box by adding a 100% width element. It should also start a new
-                            // child flex box though so that it'll actually be allowed to wrap.
                             if (token.nucleus.code == 10) {
+                                // If the atom's nucleus is a line break, (probably produced by "\\"), it should
+                                // break the flex box by adding a 100% width element. It should also start a new
+                                // child flex box though so that it'll actually be allowed to wrap.
                                 token.isLineBreak = true;
                                 token.div.style.width = '100%';
                             } else {
-                                token.div.innerHTML = '<div style="display:inline-block;' + ({
+                                // In \normalfont, characters of family 7 (variables) are italicized. By default,
+                                // that includes all lowercase and uppercase Latin letter and lowercase Greek let-
+                                // ters. They also receive an italic correction after them so that they don't just
+                                // form one continuous long word when multiple variables are stringed together. It
+                                // helps because non-variable characters are rendered in normal, upright font. If
+                                // an italicized character appears right next to an upright one, the italicized one
+                                // will sometimes overflow its boundary box and go into the next, upright charac-
+                                // ter. It leads to overlapping, ugly symbols. For fonts that already account for
+                                // that, adding an italic correction still shouldn't be a problem. This behavior is
+                                // taken directly from TeX. TeX's fonts though also assume the character will be
+                                // aligned to the left of its boundary box. A lot of regular fonts don't do that.
+                                // To account for that, the offset of the letter from its boundary box is subtract-
+                                // ed, which ensures the character will be aligned to the left of its boundary box.
+                                // This whole thing is what makes the "f"s look far apart from each other when in
+                                // the normal, math font, but look regularly spaced when in italic font (\it).
+                                token.div.innerHTML = '<div style="white-space:pre;display:inline-block;' + ({
                                     nm: token.atomType == 7 ? 'font-style:italic;margin:0 ' + fontTeX.fontDimen.italCorrOf(token.nucleus.char, family) + 'em 0 ' + fontTeX.fontDimen.leftOffsetOf(token.nucleus.char, family, 'it') + 'em;' : '',
                                     rm: '',
                                     bf: 'font-weight:bold;',
@@ -4243,22 +4422,17 @@
                                 }[font]) + (token.nucleus.invalid ? 'color:red;' : '') + '">' + (token.nucleus.code == 45 ? '\u2212' : token.nucleus.char) + '</div>';
 
                                 var fontStyle = font == 'nm' ? token.atomType == 7 ? 'it' : 'nm' : font;
-                                token.div.renderedHeight = fontTeX.fontDimen.heightOf(token.nucleus.char, family, fontStyle);
-                                token.div.renderedDepth = fontTeX.fontDimen.depthOf(token.nucleus.char, family, fontStyle);
+                                token.div.renderedHeight = fontTeX.fontDimen.heightOf(token.nucleus.char, family, fontStyle) * multiplier;
+                                token.div.renderedDepth = fontTeX.fontDimen.trueDepthOf(token.nucleus.char, family, fontStyle) * multiplier;
                             }
                             lastChar = token.nucleus.char;
                         } else if (Array.isArray(token.nucleus)) {
-                            lastChar = newBox(token.nucleus, style, cramped, font, token.div) || lastChar;
+                            lastChar = newBox(token.nucleus, style, cramped || token.atomType == 'over' || token.atomType == 'rad', font, token.div) || lastChar;
                         }
 
                         // Now a font-size needs to be set on the element to show differences between
                         // styles (e.g. if a \displaystyle was found inside a \scriptstyle group).
-                        token.div.style.fontSize = ({
-                            display:      {display:           1, text:           1, script: 0.707106781, scriptscript:         .5},
-                            text:         {display:           1, text:           1, script: 0.707106781, scriptscript:         .5},
-                            script:       {display: 1.414213562, text: 1.414213562, script:           1, scriptscript: .707106781},
-                            scriptscript: {display:           2, text:           2, script: 1.414213562, scriptscript:          1}
-                        })[flex.displayedStyle][style] + 'em';
+                        token.div.style.fontSize = multiplier + 'em';
 
                         // Now that the nucleus of the atom is done, only the sub/superscripts need to be
                         // created. After that, the atom is done being rendered. Here is where the scripts
@@ -4271,16 +4445,16 @@
                                 sub.style.display = 'inline-block';
                                 sub.style.verticalAlign = 'text-top';
                                 sub.style.marginTop = '.4em';
-                                newBox(token.subscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped, font, sub);
+                                newBox(token.subscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped || token.atomType == 'over' || token.atomType == 'rad', font, sub);
                                 // The height of the subscript if gotten by taking the boundingClientRect of the
                                 // box. Visible height doesn't really matter here because it's not being aligned
                                 // according to its visible height but by its actual physical height. Once the
                                 // height is determined, it's counted as part of the depth of the atom. The font
                                 // size is first set to 10px to set an artificial em value. After getting the
                                 // height and dividing by 10, it'll be a ratio of its height to its em value.
-                                sub.style.fontSize = '10px';
+                                sub.style.fontSize = '50px';
                                 container.appendChild(sub);
-                                var height = sub.getBoundingClientRect().height / 10;
+                                var height = sub.getBoundingClientRect().height / 50;
                                 container.removeChild(sub);
                                 // If the style isn't already at scriptscript, then it'll be rendered at a smaller
                                 // font.
@@ -4299,21 +4473,21 @@
                                 var sup = document.createElement('div');
                                 sup.style.display = 'inline-block';
                                 sup.style.verticalAlign = 'text-bottom';
-                                sup.style.paddingTop = cramped ? '.3em' : '.35em';
+                                sup.style.paddingTop = cramped || token.atomType == 'over' || token.atomType == 'rad' ? '.3em' : '.35em';
                                 sup.style.position = 'relative';
-                                sup.style.top = cramped ? '-.3em' : '-.35em';
-                                newBox(token.superscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped, font, sup);
-                                sup.style.fontSize = '10px';
+                                sup.style.top = cramped || token.atomType == 'over' || token.atomType == 'rad' ? '-.3em' : '-.35em';
+                                newBox(token.superscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped || token.atomType == 'over' || token.atomType == 'rad', font, sup);
+                                sup.style.fontSize = '50px';
                                 container.appendChild(sup);
-                                var height = sup.getBoundingClientRect().height / 10;
+                                var height = sup.getBoundingClientRect().height / 50;
                                 container.removeChild(sup);
                                 if (style != 'scriptscript') {
                                     sup.style.fontSize = '.707106781em';
-                                    sup.style.paddingTop = cramped ? '.424264069em' : '.494974747em';
-                                    sup.style.top = cramped ? '-.424264069em' : '-.494974747em';
+                                    sup.style.paddingTop = cramped || token.atomType == 'over' || token.atomType == 'rad' ? '.424264069em' : '.494974747em';
+                                    sup.style.top = cramped || token.atomType == 'over' || token.atomType == 'rad' ? '-.424264069em' : '-.494974747em';
                                     height *= .707106781;
                                 } else sup.style.fontSize = '';
-                                token.div.renderedHeight = Math.max(token.div.renderedHeight, height + (cramped ? .3 : .35));
+                                token.div.renderedHeight = Math.max(token.div.renderedHeight, height + (cramped || token.atomType == 'over' || token.atomType == 'rad' ? .3 : .35));
                                 token.div.appendChild(sup);
                             } else if (token.subscript && token.superscript) {
                                 // If there's both a superscript and a subscript, they have to be positioned right
@@ -4332,8 +4506,8 @@
                                 // are also gotten from here.
                                 var sub = document.createElement('div');
                                 sub.style.display = 'inline-block';
-                                newBox(token.subscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped, font, sub);
-                                sub.style.fontSize = '10px';
+                                newBox(token.subscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped || token.atomType == 'over' || token.atomType == 'rad', font, sub);
+                                sub.style.fontSize = '50px';
                                 container.appendChild(sub);
                                 var subDimens = sub.getBoundingClientRect();
                                 container.removeChild(sub);
@@ -4341,8 +4515,8 @@
                                 // Do the same for the superscript.
                                 var sup = document.createElement('div');
                                 sup.style.display = 'inline-block';
-                                newBox(token.superscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped, font, sup);
-                                sup.style.fontSize = '10px';
+                                newBox(token.superscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped || token.atomType == 'over' || token.atomType == 'rad', font, sup);
+                                sup.style.fontSize = '50px';
                                 container.appendChild(sup);
                                 var supDimens = sup.getBoundingClientRect();
                                 container.removeChild(sup);
@@ -4351,28 +4525,28 @@
                                 // one.
                                 var thinner = supDimens.width > subDimens.width ? sub : sup,
                                     thicker = supDimens.width > subDimens.width ? sup : sub,
-                                    height = supDimens.height / 10,
-                                    depth = subDimens.height / 10;
+                                    height = supDimens.height / 50,
+                                    depth = subDimens.height / 50;
 
                                 // Now, all the styles are added like normal.
                                 sub.style.verticalAlign = 'text-top';
                                 sub.style.marginTop = '.5em';
                                 sup.style.verticalAlign = 'text-bottom';
-                                sup.style.paddingTop = cramped ? '.4em' : '.5em';
+                                sup.style.paddingTop = cramped || token.atomType == 'over' || token.atomType == 'rad' ? '.4em' : '.5em';
                                 sup.style.position = 'relative';
-                                sup.style.top = cramped ? '-.4em' : '-.5em';
+                                sup.style.top = cramped || token.atomType == 'over' || token.atomType == 'rad' ? '-.4em' : '-.5em';
                                 if (style != 'scriptscript') {
                                     sub.style.fontSize = sup.style.fontSize = '.707106781em';
                                     height *= .707106781;
                                     depth *= .707106781;
                                     sub.style.marginTop = '.707106781em';
-                                    sup.style.paddingTop = cramped ? '.565685425em' : '.707106781em';
-                                    sup.style.top = cramped ? '-.565685425em' : '-.707106781em';
+                                    sup.style.paddingTop = cramped || token.atomType == 'over' || token.atomType == 'rad' ? '.565685425em' : '.707106781em';
+                                    sup.style.top = cramped || token.atomType == 'over' || token.atomType == 'rad' ? '-.565685425em' : '-.707106781em';
                                 } else sub.style.fontSize = sup.style.fontSize = '';
 
                                 // Height and depth are still calculated here.
                                 token.div.renderedDepth = Math.max(token.div.renderedDepth, depth + .5);
-                                token.div.renderedHeight = Math.max(token.div.renderedHeight, height + (cramped ? .4 : .5));
+                                token.div.renderedHeight = Math.max(token.div.renderedHeight, height + (cramped || token.atomType == 'over' || token.atomType == 'rad' ? .4 : .5));
 
                                 thinner.style.width = 0;
 
@@ -4398,17 +4572,19 @@
                                 // der centered and in the right spot with the right spacing. Look at `case 8'
                                 // (where fractions are created) for comments.
 
+                                token.div.renderedDepth = Math.max(token.div.renderedDepth, 0)
+
                                 var sub = document.createElement('div');
                                 sub.style.display = 'inline-block';
                                 sub.style.verticalAlign = 'text-bottom';
                                 sub.style.position = 'relative';
-                                newBox(token.subscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped, font, sub);
+                                newBox(token.subscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped || token.atomType == 'over' || token.atomType == 'rad', font, sub);
 
                                 sub.style.fontSize = style == 'scriptscript' ? token.div.style.fontSize : 'calc(' + token.div.style.fontSize + ' * .707106781)';
                                 container.appendChild(sub);
                                 var width = sub.getBoundingClientRect().width;
-                                sub.style.fontSize = '10px';
-                                var height = sub.getBoundingClientRect().height / 10;
+                                sub.style.fontSize = '50px';
+                                var height = sub.getBoundingClientRect().height / 50;
                                 container.removeChild(sub);
 
                                 if (style == 'scriptscript') {
@@ -4420,15 +4596,17 @@
                                     // "y" gives "y" a greater depth). This is what lets a subscript appear higher on
                                     // an "a" than on a "y" (try "\mathop y_1 \mathop a_1" to see the difference on the
                                     // "1").
-                                    sub.style.top = height - fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedDepth + 'em';
+                                    sub.style.top = -fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth + 'em';
                                     sub.style.paddingBottom = -height + fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth + 'em';
                                     token.div.style.paddingBottom = height - fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedDepth + 'em';
                                 } else {
                                     sub.style.fontSize = '.707106781em';
-                                    sub.style.top = height - (fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth) / .707106781 + 'em';
+                                    sub.style.top = (fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth) / -.707106781 + 'em';
                                     sub.style.paddingBottom = -height - (fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth) / -.707106781 + 'em';
                                     token.div.style.paddingBottom = height * .707106781 - fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedDepth + 'em';
                                 }
+
+                                sub.style.height = 0;
 
                                 // This is where the nucleus and subscript are positioned depending on their width.
                                 if (width < nucleusWidth) {
@@ -4446,7 +4624,7 @@
                                 var heightContainer = document.createElement('div');
                                 heightContainer.style.display = 'inline-block';
                                 heightContainer.style.width = 0;
-                                heightContainer.style.opacity = 0;
+                                heightContainer.style.visibility = 'hidden';
                                 heightContainer.style.webkitUserSelect =
                                     heightContainer.style.mozUserSelect =
                                     heightContainer.style.msUserSelect =
@@ -4461,12 +4639,11 @@
                                 widthCont.appendChild(thinner);
                                 thinContainer.appendChild(widthCont);
                                 var clone = noWrap(thicker.cloneNode(true));
-                                clone.style.opacity = 0;
+                                clone.style.visibility = 'hidden';
                                 clone.style.webkitUserSelect =
                                     clone.style.mozUserSelect =
                                     clone.style.msUserSelect =
                                     clone.style.userSelect = 'none';
-                                clone.style.pointerEvents = 'none';
                                 clone.style.fontSize = style == 'scriptscript' ? '' : width < nucleusWidth ? '1.414213562em' : '.707106781em';
                                 clone.style.height = 0;
                                 clone.style.verticalAlign = 'top';
@@ -4483,13 +4660,13 @@
 
                                 // Since the subscript in its entirety is being added on right under the atom, all
                                 // of its height and depth are adding on to the depth of the atom.
-                                token.div.renderedDepth += sub.renderedHeight + sub.renderedDepth;
+                                token.div.renderedDepth += (height - fontTeX.fontDimen.baselineHeightOf(family) + sub.renderedDepth) * (style == 'scriptscript' ? 1 : .707106781);
                             } else if (token.superscript && !token.subscript) {
                                 // This is the superscript version of the above.
                                 var sup = document.createElement('div');
                                 sup.style.display = 'inline-block';
                                 sup.style.verticalAlign = 'text-bottom';
-                                newBox(token.superscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped, font, sup);
+                                newBox(token.superscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped || token.atomType == 'over' || token.atomType == 'rad', font, sup);
 
                                 sup.style.fontSize = style == 'scriptscript' ? token.div.style.fontSize : 'calc(' + token.div.style.fontSize + ' * .707106781)';
                                 container.appendChild(sup);
@@ -4519,7 +4696,7 @@
                                 var heightContainer = document.createElement('div');
                                 heightContainer.style.display = 'inline-block';
                                 heightContainer.style.width = 0;
-                                heightContainer.style.opacity = 0;
+                                heightContainer.style.visibility = 'hidden';
                                 heightContainer.style.webkitUserSelect =
                                     heightContainer.style.mozUserSelect =
                                     heightContainer.style.msUserSelect =
@@ -4534,12 +4711,11 @@
                                 widthCont.appendChild(thinner);
                                 thinContainer.appendChild(widthCont);
                                 var clone = noWrap(thicker.cloneNode(true));
-                                clone.style.opacity = 0;
+                                clone.style.visibility = 'hidden';
                                 clone.style.webkitUserSelect =
                                     clone.style.mozUserSelect =
                                     clone.style.msUserSelect =
                                     clone.style.userSelect = 'none';
-                                clone.style.pointerEvents = 'none';
                                 clone.style.fontSize = style == 'scriptscript' ? '' : width < nucleusWidth ? '1.414213562em' : '.707106781em';
                                 clone.style.height = 0;
                                 clone.style.verticalAlign = 'top';
@@ -4554,30 +4730,32 @@
                                     token.div.insertBefore(nucleusPar, sup);
                                 }
 
-                                token.div.renderedHeight += sup.renderedHeight + sup.renderedDepth;
+                                token.div.renderedHeight += (Math.max(sup.renderedDepth, fontTeX.fontDimen.baselineHeightOf(family)) + sup.renderedHeight) * (style == 'scriptscript' ? 1 : .707106781);
                             } else if (token.superscript && token.subscript) {
                                 // Both a superscript and subscript are rendered the same way they are separately.
                                 // The only difference is that three things' widths are compared instead of just
                                 // two.
 
+                                token.div.renderedDepth = Math.max(token.div.renderedDepth, 0);
+
                                 var sub = document.createElement('div');
                                 sub.style.display = 'inline-block';
                                 sub.style.verticalAlign = 'text-bottom';
                                 sub.style.position = 'relative';
-                                newBox(token.subscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped, font, sub);
+                                newBox(token.subscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped || token.atomType == 'over' || token.atomType == 'rad', font, sub);
 
                                 sub.style.fontSize = style == 'scriptscript' ? token.div.style.fontSize : 'calc(' + token.div.style.fontSize + ' * .707106781)';
                                 container.appendChild(sub);
                                 var subWidth = sub.getBoundingClientRect().width;
-                                sub.style.fontSize = '10px';
-                                var height = sub.getBoundingClientRect().height / 10;
+                                sub.style.fontSize = '50px';
+                                var height = sub.getBoundingClientRect().height / 50;
                                 container.removeChild(sub);
 
                                 var sup = document.createElement('div');
                                 sup.style.display = 'inline-block';
                                 sup.style.verticalAlign = 'text-bottom';
                                 sup.style.position = 'relative';
-                                newBox(token.superscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped, font, sup);
+                                newBox(token.superscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped || token.atomType == 'over' || token.atomType == 'rad', font, sup);
 
                                 sup.style.fontSize = style == 'scriptscript' ? token.div.style.fontSize : 'calc(' + token.div.style.fontSize + ' * .707106781)';
                                 container.appendChild(sup);
@@ -4586,17 +4764,18 @@
 
                                 if (style == 'scriptscript') {
                                     sub.style.fontSize = sup.style.fontSize = '';
-                                    sub.style.top = height - fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedDepth + 'em';
+                                    sub.style.top = -fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth + 'em';
                                     sub.style.paddingBottom = -height + fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth + 'em';
                                     token.div.style.paddingBottom = height - fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedDepth + 'em';
                                     sup.style.marginBottom = fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedHeight + 'em';
                                 } else {
                                     sub.style.fontSize = sup.style.fontSize = '.707106781em';
-                                    sub.style.top = height - (fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth) / .707106781 + 'em';
+                                    sub.style.top = (fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth) / -.707106781 + 'em';
                                     sub.style.paddingBottom = -height - (fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth) / -.707106781 + 'em';
                                     token.div.style.paddingBottom = height * .707106781 - fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedDepth + 'em';
                                     sup.style.marginBottom = (fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedHeight) / .707106781 + 'em';
                                 }
+                                sub.style.height = 0;
 
                                 if (subWidth <= supWidth && nucleusWidth <= supWidth) {
                                     token.div.insertBefore(sub, nucleusElem);
@@ -4611,7 +4790,7 @@
                                         nucHeightContainer = document.createElement('div');
                                     subHeightContainer.style.display = nucHeightContainer.style.display = 'inline-block';
                                     subHeightContainer.style.width = nucHeightContainer.style.width = 0;
-                                    subHeightContainer.style.opacity = nucHeightContainer.style.opacity = 0;
+                                    subHeightContainer.style.visibility = nucHeightContainer.style.visibility = 'hidden';
                                     subHeightContainer.style.webkitUserSelect =
                                         subHeightContainer.style.mozUserSelect =
                                         subHeightContainer.style.msUserSelect =
@@ -4637,7 +4816,7 @@
                                     nucThinContainer.appendChild(nucWidthCont);
                                     var subClone = noWrap(sup.firstElementChild.cloneNode(true)),
                                         nucClone = subClone.cloneNode(true);
-                                    subClone.style.opacity = nucClone.style.opacity = 0;
+                                    subClone.style.visibility = nucClone.style.visibility = 'hidden';
                                     subClone.style.webkitUserSelect =
                                         subClone.style.mozUserSelect =
                                         subClone.style.msUserSelect =
@@ -4646,7 +4825,6 @@
                                         nucClone.style.mozUserSelect =
                                         nucClone.style.msUserSelect =
                                         nucClone.style.userSelect = 'none';
-                                    subClone.style.pointerEvents = nucClone.style.pointerEvents = 'none';
                                     subClone.style.fontSize = '';
                                     nucClone.style.fontSize = style == 'scriptscript' ? '' : '.707106781em';
                                     subClone.style.height = nucClone.style.height = 0;
@@ -4672,7 +4850,7 @@
                                         supHeightContainer = document.createElement('div');
                                     subHeightContainer.style.display = supHeightContainer.style.display = 'inline-block';
                                     subHeightContainer.style.width = supHeightContainer.style.width = 0;
-                                    subHeightContainer.style.opacity = supHeightContainer.style.opacity = 0;
+                                    subHeightContainer.style.visibility = supHeightContainer.style.visibility = 'hidden';
                                     subHeightContainer.style.webkitUserSelect =
                                         subHeightContainer.style.mozUserSelect =
                                         subHeightContainer.style.msUserSelect =
@@ -4698,7 +4876,7 @@
                                     supThinContainer.appendChild(supWidthCont);
                                     var subClone = noWrap(nucleusElem.cloneNode(true)),
                                         supClone = subClone.cloneNode(true);
-                                    subClone.style.opacity = supClone.style.opacity = 0;
+                                    subClone.style.visibility = supClone.style.visibility = 'hidden';
                                     subClone.style.webkitUserSelect =
                                         subClone.style.mozUserSelect =
                                         subClone.style.msUserSelect =
@@ -4707,7 +4885,6 @@
                                         supClone.style.mozUserSelect =
                                         supClone.style.msUserSelect =
                                         supClone.style.userSelect = 'none';
-                                    subClone.style.pointerEvents = supClone.style.pointerEvents = 'none';
                                     subClone.style.fontSize = supClone.style.fontSize = style == 'scriptscript' ? '' : '1.414213562em';
                                     subClone.style.height = supClone.style.height = 0;
                                     subClone.style.verticalAlign = supClone.style.verticalAlign = 'top';
@@ -4728,7 +4905,7 @@
                                         nucHeightContainer = document.createElement('div');
                                     supHeightContainer.style.display = nucHeightContainer.style.display = 'inline-block';
                                     supHeightContainer.style.width = nucHeightContainer.style.width = 0;
-                                    supHeightContainer.style.opacity = nucHeightContainer.style.opacity = 0;
+                                    supHeightContainer.style.visibility = nucHeightContainer.style.visibility = 'hidden';
                                     supHeightContainer.style.webkitUserSelect =
                                         supHeightContainer.style.mozUserSelect =
                                         supHeightContainer.style.msUserSelect =
@@ -4754,7 +4931,7 @@
                                     nucThinContainer.appendChild(nucWidthCont);
                                     var supClone = noWrap(sub.firstElementChild.cloneNode(true)),
                                         nucClone = supClone.cloneNode(true);
-                                    supClone.style.opacity = nucClone.style.opacity = 0;
+                                    supClone.style.visibility = nucClone.style.visibility = 'hidden';
                                     supClone.style.webkitUserSelect =
                                         supClone.style.mozUserSelect =
                                         supClone.style.msUserSelect =
@@ -4763,7 +4940,6 @@
                                         nucClone.style.mozUserSelect =
                                         nucClone.style.msUserSelect =
                                         nucClone.style.userSelect = 'none';
-                                    supClone.style.pointerEvents = nucClone.style.pointerEvents = 'none';
                                     supClone.style.fontSize = '';
                                     nucClone.style.fontSize = style == 'scriptscript' ? '' : '.707106781em';
                                     supClone.style.height = nucClone.style.height = 0;
@@ -4778,9 +4954,8 @@
                                     token.div.insertBefore(nucleusPar, sub);
                                 }
 
-
-                                token.div.renderedHeight += sup.renderedHeight + sup.renderedDepth;
-                                token.div.renderedDepth += sub.renderedHeight + sub.renderedDepth;
+                                token.div.renderedHeight += (Math.max(sup.renderedDepth, fontTeX.fontDimen.baselineHeightOf(family)) + sup.renderedHeight) * (style == 'scriptscript' ? 1 : .707106781);
+                                token.div.renderedDepth += (height - fontTeX.fontDimen.baselineHeightOf(family) + sub.renderedDepth) * .707106781;
                             }
                         }
 
@@ -4833,11 +5008,16 @@
                                         // they had the same height and depth. The minimum height of a delimiter is 1 so
                                         // that a character like a "-" won't just have a super small, weird looking delimi
                                         // iter.
-                                        var height = .5 - fontTeX.fontDimen.baselineHeightOf(family);
-                                        height = Math.max(token.div.renderedHeight - height, token.div.renderedDepth + height, (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) / 2) * 2;
+                                        var axisHeight = fontTeX.fontDimen.heightOf('x', family) / 2,
+                                            height = Math.max(token.div.renderedHeight - axisHeight, token.div.renderedDepth + axisHeight, (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) / 2) * 2;
                                         elem.style.height = height + 'em';
                                         elem.style.width = fontTeX.fontDimen.widthOf(delimiter, family) + 'em';
                                         elem.style.verticalAlign = 'middle';
+
+                                        // If an atom has a height or depth lower than a delimiter, the delimiter character
+                                        // adds extra height/depth.
+                                        token.div.renderedHeight = Math.max(height / 2 + axisHeight, token.div.renderedHeight);
+                                        token.div.renderedDepth = Math.max(height / 2 - axisHeight, token.div.renderedDepth)
 
                                         // The height of the canvas is set to 100 (all of its coordinates are based on the
                                         // height). The width is found out by setting up the ratio [width] / [character's
@@ -4873,11 +5053,14 @@
                                         // too (it probably allows for stretching past two times, but then again it has
                                         // special characters for that; all we have here is the one).
 
-                                        var height = .5 - fontTeX.fontDimen.baselineHeightOf(family);
-                                        height = Math.max(token.div.renderedHeight - height, token.div.renderedDepth + height, (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) / 2) * 2;
+                                        var axisHeight = fontTeX.fontDimen.heightOf('x', family) / 2,
+                                            height = Math.max(token.div.renderedHeight - axisHeight, token.div.renderedDepth + axisHeight, (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) / 2) * 2;
                                         elem.style.height = height + 'em';
                                         elem.style.width = fontTeX.fontDimen.widthOf(delimiter, family) + 'em';
                                         elem.style.verticalAlign = 'middle';
+
+                                        token.div.renderedHeight = Math.max(height / 2 + axisHeight, token.div.renderedHeight);
+                                        token.div.renderedDepth = Math.max(height / 2 - axisHeight, token.div.renderedDepth)
 
                                         if (height <= 2) {
                                             // If the height is less than 2, the character can be drawn normally and then just
@@ -4973,8 +5156,8 @@
                                         // only difference is that they don't try to stretch to twice their height first.
                                         // The code below is coped from the third case item.
 
-                                        var height = .5 - fontTeX.fontDimen.baselineHeightOf(family);
-                                        height = Math.max(token.div.renderedHeight - height, token.div.renderedDepth + height, (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) / 2) * 2;
+                                        var axisHeight = fontTeX.fontDimen.heightOf('x', family) / 2,
+                                            height = Math.max(token.div.renderedHeight - axisHeight, token.div.renderedDepth + axisHeight, (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) / 2) * 2;
                                         elem.style.height = height + 'em';
                                         elem.style.width = fontTeX.fontDimen.widthOf(delimiter, family) + 'em';
                                         elem.style.verticalAlign = 'middle';
@@ -4985,6 +5168,9 @@
                                         context.textAlign = 'center';
                                         context.font = glyphHeight + 'px ' + family;
                                         context.fillText(delimiter, elem.width / 2, 50 - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight);
+
+                                        token.div.renderedHeight = Math.max(height / 2 + axisHeight, token.div.renderedHeight);
+                                        token.div.renderedDepth = Math.max(height / 2 - axisHeight, token.div.renderedDepth)
 
                                         var bottomHalf = context.getImageData(0, 0, elem.width, 50);
                                         context.clearRect(0, 0, elem.width, elem.height);
@@ -5026,8 +5212,8 @@
                                         // vertically flat, which seems like a long, unnecessary and hard task for some-
                                         // thing small like this. It still works for most cases.
 
-                                        var height = .5 - fontTeX.fontDimen.baselineHeightOf(family);
-                                        height = Math.max(token.div.renderedHeight - height, token.div.renderedDepth + height, (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) / 2) * 2;
+                                        var axisHeight = fontTeX.fontDimen.heightOf('x', family) / 2,
+                                            height = Math.max(token.div.renderedHeight - axisHeight, token.div.renderedDepth + axisHeight, (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) / 2) * 2;
                                         elem.style.height = height + 'em';
                                         elem.style.width = fontTeX.fontDimen.widthOf(delimiter, family) + 'em';
                                         elem.style.verticalAlign = 'middle';
@@ -5037,6 +5223,9 @@
                                         var context = elem.getContext('2d');
                                         context.textAlign = 'center';
                                         context.font = glyphHeight + 'px ' + family;
+
+                                        token.div.renderedHeight = Math.max(height / 2 + axisHeight, token.div.renderedHeight);
+                                        token.div.renderedDepth = Math.max(height / 2 - axisHeight, token.div.renderedDepth)
 
                                         // The bottom half is saved here.
                                         context.fillText(delimiter, elem.width / 2, 33 - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight);
@@ -5109,13 +5298,143 @@
                         // atom isn't special, this step is skipped.
                         switch (token.atomType) {
                             case 'rad':
+                                token.atomType = 0;
+                                break;
+
+                            case 'over':
+                                // To overline an atom, an extra element is added at the front of `token.div' width
+                                // width: 0. Inside that element, another element is added. This element will be
+                                // allowed to grow to the atom's width. Inside that new element, a clone of the en-
+                                // tire atom is added to give the element the correct width. Another element is
+                                // added. It has position: absolute, left: 0 and right: 0. That lets it inherit the
+                                // parent's width while not offsetting it with its own width. That absolutely pos-
+                                // itioned atom gets a border-top that will act as the overline. This whole thing
+                                // is like a simplified version of how fractions are rendered. Look through case: 8
+                                // for more on how they're made.
+
+                                var overline = document.createElement('div'),
+                                    fullContainer = document.createElement('div'),
+                                    widthContainer = document.createElement('div'),
+                                    heightOffset = document.createElement('div'),
+                                    clone = noWrap(token.div.cloneNode(true));
+
+                                fullContainer.style.display = 'inline-block';
+                                fullContainer.style.width = fullContainer.style.height = 0;
+                                fullContainer.style.position = 'relative';
+                                fullContainer.style.top = -fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedHeight - fontTeX.fontDimen.visibleWidthOf('|', family) - .12 + 'em';
+                                fullContainer.style.verticalAlign = 'text-bottom';
+                                widthContainer.style.display = 'inline-block';
+                                widthContainer.style.webkitUserSelect =
+                                    widthContainer.style.mozUserSelect =
+                                    widthContainer.style.msUserSelect =
+                                    widthContainer.style.userSelect = 'none';
+                                widthContainer.style.position = 'relative';
+                                overline.style.position = 'absolute';
+                                overline.style.left = overline.style.right = 0;
+                                overline.style.borderTop = fontTeX.fontDimen.visibleWidthOf('|', family) + 'em solid currentColor';
+                                widthContainer.appendChild(overline);
+                                clone.style.visibility = 'hidden';
+                                widthContainer.appendChild(clone);
+                                fullContainer.appendChild(widthContainer);
+                                token.div.insertBefore(fullContainer, token.div.firstElementChild);
+                                heightOffset.style.height = token.div.renderedHeight + fontTeX.fontDimen.visibleWidthOf('|', family) + .12 + 'em';
+                                heightOffset.style.display = 'inline-block';
+                                heightOffset.style.width = 0;
+                                token.div.insertBefore(heightOffset, fullContainer);
+
+                                token.div.renderedHeight += fontTeX.fontDimen.visibleWidthOf('|', family) + .12;
+
+                                token.atomType = 0;
+                                break;
+
+                            case 'under':
+                                // Underlined atoms are rendered much the same way as overline.
+
+                                var underline = document.createElement('div'),
+                                    fullContainer = document.createElement('div'),
+                                    widthContainer = document.createElement('div'),
+                                    heightOffset = document.createElement('div'),
+                                    clone = noWrap(token.div.cloneNode(true));
+
+                                fullContainer.style.display = 'inline-block';
+                                fullContainer.style.width = fullContainer.style.height = 0;
+                                fullContainer.style.position = 'relative';
+                                fullContainer.style.top = -fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedDepth + .12 + 'em';
+                                fullContainer.style.verticalAlign = 'text-bottom';
+                                widthContainer.style.display = 'inline-block';
+                                widthContainer.style.webkitUserSelect =
+                                    widthContainer.style.mozUserSelect =
+                                    widthContainer.style.msUserSelect =
+                                    widthContainer.style.userSelect = 'none';
+                                widthContainer.style.position = 'relative';
+                                underline.style.position = 'absolute';
+                                underline.style.left = underline.style.right = 0;
+                                underline.style.borderTop = fontTeX.fontDimen.visibleWidthOf('|', family) + 'em solid currentColor';
+                                widthContainer.appendChild(underline);
+                                clone.style.visibility = 'hidden';
+                                widthContainer.appendChild(clone);
+                                fullContainer.appendChild(widthContainer);
+                                token.div.insertBefore(fullContainer, token.div.firstElementChild);
+                                token.div.style.paddingBottom = token.div.style.paddingBottom ?
+                                    'calc(' + token.div.style.paddingBottom + ' + ' + (fontTeX.fontDimen.visibleWidthOf('|', family) + .12 - Math.max(0, fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth)) + 'em)':
+                                    fontTeX.fontDimen.visibleWidthOf('|', family) + .12 - Math.max(0, fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth) + 'em';
+
+                                token.div.renderedDepth += fontTeX.fontDimen.visibleWidthOf('|', family) + .12;
+
+                                token.atomType = 0;
                                 break;
 
                             case 'acc':
+                                // Accents are handled by simply placing the accent character right on top of the
+                                // current nucleus. Accent characters like "´" (acute, U+00B4) are already offset
+                                // above the text. There is still some vertical shift though so that the accent
+                                // goes on top `Math.max(the nucleus's height, the ex height of the font).'
+
+                                var acc = document.createElement('div'),
+                                    spacer = document.createElement('div');
+                                acc.style.display = 'inline-block';
+                                acc.style.position = 'relative';
+                                if (font == 'it') acc.style.fontStyle = 'italic';
+                                else if (font == 'sl') acc.style.fontStyle = 'oblique';
+                                else if (font == 'bf') acc.style.fontWeight = 'bold';
+                                acc.style.top = Math.min(fontTeX.fontDimen.heightOf('x', family), token.div.renderedHeight) - token.div.renderedHeight + 'em';
+                                acc.style.width = 0;
+                                acc.style.lineHeight = 1.1;
+                                acc.style.height = '1.1em';
+                                acc.style.verticalAlign = 'text-bottom';
+                                acc.innerText = token.accChar;
+                                var offset = token.nucleus && (token.nucleus.type == 'symbol' && (font == 'it' || font == 'sl')) ? fontTeX.fontDimen.italCorrOf(token.accChar, family) : 0;
+                                offset = offset || (token.nucleus && token.nucleus.length == 1 && token.nucleus[0].nucleus && token.nucleus[0].nucleus.type == 'symbol' && token.nucleus[0].atomType == 7 && font == 'nm' ? fontTeX.fontDimen.italCorrOf(token.accChar, family) : 0);
+                                token.div.style.fontSize = '50px';
+                                container.appendChild(token.div);
+                                acc.style.left = (token.div.getBoundingClientRect().width / 50 - fontTeX.fontDimen.widthOf(token.accChar, family, font)) / 2 + offset + 'em';
+                                container.removeChild(token.div);
+                                token.div.style.fontSize = '';
+                                token.div.insertBefore(acc, token.div.firstElementChild);
+                                spacer.style.display = 'inline-block';
+                                spacer.style.width = 0;
+                                spacer.style.height = (token.div.renderedHeight - Math.min(fontTeX.fontDimen.heightOf('x', family), token.div.renderedHeight)) + fontTeX.fontDimen.heightOf(token.accChar, family, font) + 'em';
+                                token.div.insertBefore(spacer, acc);
+
+                                token.div.renderedHeight = (token.div.renderedHeight - Math.min(fontTeX.fontDimen.heightOf('x', family), token.div.renderedHeight)) + fontTeX.fontDimen.heightOf(token.accChar, family, font);
+
+                                token.atomType = 0;
                                 break;
 
                             case 'vcenter':
+                                // A vcenter atom vertically centers the atom on the line according to its height
+                                // and depth.
 
+                                var axisHeight = fontTeX.fontDimen.heightOf('x', family) / 2,
+                                    offset = (token.div.renderedHeight - axisHeight) - (token.div.renderedDepth + axisHeight);
+
+                                token.div.style.position = 'relative';
+                                token.div.style.top = offset / 2 + 'em';
+
+                                token.div.renderedHeight -= offset / 2;
+                                token.div.renderedDepth += offset / 2;
+
+                                token.atomType = 0;
                                 break;
                         }
 
@@ -5173,37 +5492,28 @@
                                     -verticalOffsets.sp / 65536 + 'pt' : -verticalOffsets.em / 65536 + 'em';
                             }
                         } else if (token.type == 'kern' && (token.dimen.sp.value || token.dimen.em.value)) {
-                            // If the token is a horizontal kern item, it can be added like a regular div with
-                            // a set width and no stretchability. Instead of giving it a width, its margin-left
-                            // is set instead to allow for negative values (negative widths are ignored). That
-                            // lets kerns alter widths in both positive and negative ways.
-
-                            var kern = document.createElement('div');
-                            kern.style.marginLeft = token.dimen.sp.value ?
+                            // Kern items are added by adding a margin-right to the last used atom. This allows
+                            // for both positive and negative values (as opposed to widths on glues, which
+                            // can't be negative). I've tried a few ways including adding a new element to act
+                            // as the kern and changing the styles on `childFlexes.last' instead of its first
+                            // child, but this way seems to get the most consistent behavior (the other ways
+                            // can lead to unpredictable wrapping and spacing). If the last atom has already
+                            // had a kern applied to it (e.g. through two adjacent kerns with no atom between
+                            // them), a new separate element is added to add the kern to.
+                            if (!childFlexes.last.lastElementChild || childFlexes.last.lastElementChild.style.marginRight) {
+                                var div = document.createElement('div');
+                                div.style.display = 'inline-block';
+                                childFlexes.last.appendChild(div);
+                            }
+                            childFlexes.last.lastElementChild.style.marginRight = token.dimen.sp.value ?
                                 token.dimen.em.value ? 'calc(' + token.dimen.sp.value / 65536 + 'pt + ' + token.dimen.em.value / 65536 + 'em)' :
                                 token.dimen.sp.value / 65536 + 'pt' : token.dimen.em.value / 65536 + 'em';
-                            childFlexes.push(kern);
-                            childFlexes.push(document.createElement('div'));
-                            childFlexes.last.style.display = 'inline-flex';
-                            childFlexes.last.style.flexWrap = 'nowrap';
-                            childFlexes.last.style.alignItems = 'baseline';
-                            if (verticalOffsets.sp || verticalOffsets.em) {
-                                childFlexes.last.style.position = 'relative';
-                                childFlexes.last.style.marginTop = verticalOffsets.sp ?
-                                    verticalOffsets.em ? 'calc(' + verticalOffsets.sp / 65536 + 'pt + ' + verticalOffsets.em / 65536 + 'em)' :
-                                    verticalOffsets.sp / 65536 + 'pt' : verticalOffsets.em / 65536 + 'em';
-                                childFlexes.last.style.marginBottom = verticalOffsets.sp ?
-                                    verticalOffsets.em ? 'calc(' + -verticalOffsets.sp / 65536 + 'pt - ' + verticalOffsets.em / 65536 + 'em)' :
-                                    -verticalOffsets.sp / 65536 + 'pt' : -verticalOffsets.em / 65536 + 'em';
-                                childFlexes.last.style.top = verticalOffsets.sp ?
-                                    verticalOffsets.em ? 'calc(' + -verticalOffsets.sp / 65536 + 'pt - ' + verticalOffsets.em / 65536 + 'em)' :
-                                    -verticalOffsets.sp / 65536 + 'pt' : -verticalOffsets.em / 65536 + 'em';
-                            }
                         } else if (token.type == 'glue') {
-                            // If it's a horizontal glue item, it acts like a kern item except it's allowed to
-                            // stretch and/or shrink. Instead of using margin-left like a glue though, it uses
-                            // width. That means glue widths can't be negative, but at least it adds the abil-
-                            // ity to stretch and shrink.
+                            // Glues need to be able to stretch, so they can't rely on margin-right like kerns
+                            // can. Instead, they create a new flex item inside the flex box that has a set
+                            // width, max-width, and min-width. Relying on width means it'll be allowed to grow
+                            // under the right circumstances. Because of that though, glues can't be negative.
+                            // CSS's width style only accepts positive values.
 
                             var glue = document.createElement('div');
                             glue.style.width = token.glue.start.sp.value ?
@@ -5282,7 +5592,6 @@
                                         verticalOffsets.em ? 'calc(' + -verticalOffsets.sp / 65536 + 'pt - ' + verticalOffsets.em / 65536 + 'em)' :
                                         -verticalOffsets.sp / 65536 + 'pt' : -verticalOffsets.em / 65536 + 'em';
                                 }
-
                             }
                             if (atomIndex != 0 && token.atomType == 3) {
                                 if (style == 'display' || style == 'text' && atoms[atomIndex - 1].atomType != 3 && atoms[atomIndex - 1].atomType != 4) {
@@ -5383,7 +5692,7 @@
 
                             // This is where Punct line breaks are handled.
                             if (token.atomType == 6) {
-                                if (style == 'display' || style == 'text' && (!atoms[atomIndex + 1] || atoms[atomIndex + 1].atomType != 3)) {
+                                if (style == 'display' || style == 'text' && atoms[atomIndex + 1] && atoms[atomIndex + 1].atomType != 3) {
                                     childFlexes.push(document.createElement('div'));
                                     childFlexes.last.style.width = '.1666667em';
                                 }
@@ -5423,109 +5732,6 @@
         }
 
         return div;
-
-
-
-
-
-
-
-
-/*
-        // `family' is the font-family of the `parent' element. It's used when getting the
-        // widths of characters.
-        var family = parent.style.fontFamily || getComputedStyle(parent).fontFamily;
-        // `body' is the overall containing element. It will be returned after everything
-        // has been parsed and added to the list.
-        var body = document.createElement('div');
-        body.style.display = 'inline-block';
-        body.style.lineHeight = 1.2;
-        // The `relWidth' property is a number that keeps track of the relative width in em
-        // units that the list takes up. The width of individual characters are taken and
-        // added together. The relative width lets lists' widths be compared so that the
-        // thinnest one can be altered and made to match the width of the fattest list. It
-        // is especially helpful in fractions and stacked superscripts and subscripts.
-        body.relWidth = 0;
-
-        // Each token is iterated over and added to the containing <div>.
-        for (var i = 0, l = tokens.length; i < l; i++) {
-            var token = tokens[i];
-            if (token.type == 'atom') {
-                // `atom' will be a <div> that has the nucleus along with the superscripts and sub-
-                // scripts.
-                var atom = document.createElement('div');
-                atom.style.display = 'inline-block';
-
-                if (Array.isArray(token.nucleus)) {
-                    // If the nucleus is a token list in itself, it is parsed separately and added to
-                    // the atom all in one.
-                    var nucleus = fontTeX._genHTML(token.nucleus, style, 'normal', family);
-                    atom.appendChild(nucleus);
-                } else if (token.nucleus) {
-                    // If the nucleus is just a single character, it is added to the atom by itself
-                    // without wrapping it in its own list.
-                    body.relWidth += fontTeX.fontDimen.widthOf(token.nucleus.char, family);
-                    if (token.nucleus.invalid) {
-                        var div = document.createElement('div');
-                        div.style.display = 'inline-block';
-                        div.style.background = '#c00';
-                        div.style.color = '#fff';
-                        div.innerText = token.nucleus.char;
-                        atom.appendChild(div);
-                    } else atom.appendChild(document.createTextNode(token.nucleus.char));
-                }
-
-                // There are four cases with superscripts and subscripts: 1) there are none (just
-                // a regular character), 2) there is only a superscript, 3) there is only a sub-
-                // script, and 4) there is both a superscript and subscript. In the first case, no-
-                // thing needs to be done; the atom is already done being created. The other three
-                // cases are below.
-                if (token.superscript && !token.subscript) {
-                    // There is only a superscript. A superscript is always aligned such that its bot-
-                    // tom is right in the middle of the line. To do that is pretty simple: two elem-
-                    // ents are added to the atom. The first one will be a `display' element. It will
-                    // contain the visible text that the user sees. The other will be a `spacing' elem-
-                    // ent. It will be completely blank and will offset any neighboring elements so
-                    // that they don't overlap on top of the `display' element. The `display' element
-                    // will have a height and width of 0, hence the need for a `spacing' element.
-
-                    // First, the `display' element is created. It will have no height or width.
-                    var display = document.createElement('div');
-                    display.style.verticalAlign = 'middle';
-                    display.style.display = 'inline-block';
-                    display.style.position = 'relative';
-                    // Now, an element is made that will be inside the `display' atom. It will be abs-
-                    // olutly positioned so that it doesn't add any dimension to its parent. It will
-                    // have bottom: 0 so that its bottom will be aligned with the bottom of the `dis-
-                    // play' atom (i.e. right above the middle of the line).
-                    var superscript = fontTeX._genHTML(Array.isArray(token.superscript) ? token.superscript : [token.superscript], style == 'display' || style == 'text' ? 'script' : 'scriptscript', family);
-                    superscript.style.position = 'absolute';
-                    superscript.style.bottom = '0';
-                    body.relWidth += (superscript.relWidth *= (style == 'display' || style == 'text' ? .7 : style == 'script' ? 5/7 : 1));
-                    display.appendChild(superscript);
-                    // Now that's done, the `spacing' element has to be added too. We already know the
-                    // relative width of the element in em units, but the height is still needed to
-                    // offset the line above.
-                    var spacing = document.createElement('div');
-                    spacing.style.width = superscript.relWidth + 'em';
-                    spacing.style.height = fontTeX._relHeightOf(display, parent) * superscript.relWidth + 'em';
-                    display.style.
-                    // Now add the two element to the overall atom element.
-                    atom.appendChild(display);
-                    atom.appendChild(spacing);
-                } else if (token.subscript && !token.superscript) {
-                    // If the atom has a subscript without a superscript, the subscript is rendered a
-                    // little bit higher since there's nothing to block it from going up.
-                    var subscript = fontTeX._genHTML(Array.isArray(token.subscript) ? token.subscript : [token.subscript], style == 'display' || style == 'text' ? 'script' : 'scriptscript', family);
-                    subscript.style.marginBottom = '.15em';
-                    subscript.style.position = 'relative';
-                    subscript.style.top = '.15em';
-                    body.relWidth += subscript.relWidth;
-                    atom.appendChild(subscript);
-                }
-                body.appendChild(atom);
-        }*/
-        return body;
     }
 
 
@@ -5579,14 +5785,20 @@
     // The IntegerReg class is used for integer registers (\count). It holds values
     // between [-(2^53 - 1), 2^53 - 1] or [-9007199254740991, 9007199254740991]. Dec-
     // imal and fraction values are rounded off.
-    function IntegerReg(int, msg) {
+    function IntegerReg(int, min, max, msg) {
         this.type = 'integer';
         this.register = true;
         this.message = msg || '';
         if (int instanceof IntegerReg) {
             this.value = int.value;
             this.parent = int;
+            this.min = int.min;
+            this.max = int.max;
         } else {
+            if (min === null || min === undefined) this.min = -9007199254740991;
+            else this.min = min;
+            if (max === null || min === undefined) this.max = 9007199254740991;
+            else this.max = max;
             int = Math.round(int);
             if (!isFinite(int)) int = 9007199254740991 * Math.sign(int);
             if (int > 9007199254740991) int = -9007199254740991 + (int % 9007199254740991);
@@ -5709,7 +5921,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -5729,7 +5940,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -5737,7 +5947,6 @@
                     var dimen = e.mouth.eat('dimension');
                     if (!dimen) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -5763,7 +5972,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -5773,7 +5981,6 @@
                     var dimen = e.mouth.eat('dimension');
                     if (!dimen) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -5796,7 +6003,6 @@
                             }
                         } else {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(aboveDelimsSym);
                             delete e.scopes.last.fracLeftDelim;
                             return [this];
@@ -5821,7 +6027,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -5830,7 +6035,6 @@
                     var charCode = e.mouth.eat('integer');
                     if (!charCode || charCode.value < 0) {
                         this.invalid = true;
-                        this.recognized = true;
                         e.mouth.loadState(accentSym);
                         return [this];
                     }
@@ -5851,7 +6055,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -5874,7 +6077,6 @@
                             } else if (token) e.mouth.revert();
                             else {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(advanceSym);
                                 return [this];
                             }
@@ -5910,7 +6112,6 @@
                                     e.toggles.global = false;
                                 } else {
                                     this.invalid = true;
-                                    this.recognized = true;
                                     e.mouth.loadState(advanceSym);
                                     return [this];
                                 }
@@ -5931,7 +6132,6 @@
                                     e.toggles.global = false;
                                 } else {
                                     this.invalid = true;
-                                    this.recognized = true;
                                     e.mouth.loadState(advanceSym);
                                     return [this];
                                 }
@@ -5950,7 +6150,6 @@
                                     e.toggles.global = false;
                                 } else {
                                     this.invalid = true;
-                                    this.recognized = true;
                                     e.mouth.loadState(advanceSym);
                                     return [this];
                                 }
@@ -5995,7 +6194,6 @@
                                     e.toggles.global = false;
                                 } else {
                                     this.invalid = true;
-                                    this.recognized = true;
                                     e.mouth.loadState(advanceSym);
                                     return [this];
                                 }
@@ -6032,7 +6230,6 @@
                                     e.toggles.global = false;
                                 } else {
                                     this.invalid = true;
-                                    this.recognized = true;
                                     e.mouth.loadState(advanceSym);
                                     return [this];
                                 }
@@ -6040,7 +6237,6 @@
                             break;
                         } else {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(advanceSym);
                             return [this];
                         }
@@ -6053,7 +6249,6 @@
                     // or are right over each other with nothing in between.
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -6078,7 +6273,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -6101,7 +6295,6 @@
                             }
                         } else {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(atopDelimsSym);
                             delete e.scopes.last.fracLeftDelim;
                             return [this];
@@ -6125,7 +6318,6 @@
                     // First make sure no superscript or subscript context is open.
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -6145,7 +6337,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -6161,7 +6352,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -6171,11 +6361,10 @@
                         if (charCode.value < 0) {
                             e.mouth.revert();
                             this.invalid = true;
-                            this.recognized = true;
                             return [this];
                         }
                         if (!(charCode.value in data.cats)) {
-                            data.cats[charCode.value] = new IntegerReg(data.cats.all);
+                            data.cats[charCode.value] = new IntegerReg(data.cats.all, 0, 15);
                             for (var i = 0, l = e.scopes.length; i < l; i++) {
                                 e.scopes[i].cats[charCode.value] = new IntegerReg((i == 0 ? data : e.scopes[i - 1]).cats[charCode.value]);
                             }
@@ -6183,7 +6372,6 @@
                         return [e.scopes.last.cats[charCode.value]];
                     } else {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
                 }),
@@ -6197,7 +6385,6 @@
                     var charCode = e.mouth.eat('integer');
                     if (!charCode || charCode.value < 0) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
                     e.mouth.queue.unshift({
@@ -6217,7 +6404,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -6228,7 +6414,6 @@
                     if (name && name.type == 'command') {
                         if (name.name in data.defs.primitive || name.name in data.parameters) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(charDefSym);
                             return [true];
                         }
@@ -6237,7 +6422,6 @@
                         var integer = e.mouth.eat('integer');
                         if (!integer || integer.value < 0) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(charDefSym);
                             return [true];
                         }
@@ -6261,7 +6445,6 @@
                         e.toggles.global = false;
                     } else {
                         this.invalid = true;
-                        this.recognized = true;
                         e.mouth.loadState(charDefSym);
                         return [true];
                     }
@@ -6272,7 +6455,6 @@
                     var count = e.mouth.eat('integer');
                     if (!count || count.value < 0) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
                     if (!data.registers.count[count.value]) {
@@ -6288,7 +6470,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -6303,7 +6484,6 @@
                         // Make sure it won't overwrite a primitive or parameter.
                         if (name.name in data.defs.primitive || name.name in data.parameters) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(countDefSym);
                             return [true];
                         }
@@ -6315,7 +6495,6 @@
                         var integer = e.mouth.eat('integer');
                         if (!integer || integer.value < 0) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(countDefSym);
                             return [true];
                         }
@@ -6353,7 +6532,6 @@
                         }
                     } else {
                         this.invalid = true;
-                        this.recognized = true;
                         e.mouth.loadState(countDefSym);
                         return [true];
                     }
@@ -6367,7 +6545,6 @@
 
                     if (!e.scopes.last.isHalign && !e.scopes.last.isHalignCell || e.contexts.last != 'scope') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -6393,7 +6570,6 @@
                                 tokens = repeatable[(column - halignScope.repeatPreambleAt) % repeatable.length][1];
                             } else {
                                 this.invalid = true;
-                                this.recognized = true;
                                 return [this];
                             }
                             this.postPreamble = true;
@@ -6801,7 +6977,6 @@
 
                         if (!token) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(csnameSym);
                             return [this];
                         } else if (name.length == 0 && token.cat == data.cats.whitespace) {
@@ -6816,7 +6991,6 @@
                             // isters can't be turned into characters by themselves.
                             if (token.name in e.scopes.last.registers.named) {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(csnameSym);
                                 return [this];
                             }
@@ -6825,7 +6999,6 @@
                             // If it doesn't have a definition, return invalid.
                             if (!macro) {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(csnameSym);
                                 return [this];
                             }
@@ -6837,7 +7010,6 @@
                             // thing is made invalid.
                             if (macro instanceof Primitive || macro.proxy && macro.original instanceof Primitive) {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(csnameSym);
                                 return [this];
                             }
@@ -6847,7 +7019,6 @@
                             var expansion = e.mouth.expand(token, e.mouth);
                             if (expansion.length == 1 && expansion[0] === token && expansion[0].invalid) {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(csnameSym);
                                 return [this];
                             }
@@ -6880,7 +7051,6 @@
                     // \def isn't allowed after superscript or subscript.
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -6893,7 +7063,6 @@
                     if (!name) {
                         // If there was no token found, the current token is invalid.
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
                     var type;
@@ -6905,7 +7074,6 @@
                             name = name.char;
                         } else {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(defSym);
                             return [this];
                         }
@@ -6916,7 +7084,6 @@
                         // Make sure it's not overriding any primitives or built-in parameters.
                         if (name in e.scopes.last.defs.primitive || name in data.parameters) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(defSym);
                             return [this];
                         }
@@ -6949,7 +7116,6 @@
                             // If there are no more tokens, then replacement tokens weren't found, which makes
                             // this \def invalid.
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(defSym);
                             return [this];
                         } else if (token.cat == data.cats.open) {
@@ -6966,7 +7132,6 @@
                             if (!paramTok) {
                                 // No token was found. The command is invalid.
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(defSym);
                                 return [this];
                             } else if (paramTok.cat == data.cats.open) {
@@ -6989,7 +7154,6 @@
                                 // Some other token was found after the parameter token. That make the \def command
                                 // call invalid.
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(defSym);
                                 return [this];
                             }
@@ -7019,7 +7183,6 @@
                         if (!token) {
                             // The replacement text was never closed. Make this command invalid.
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(defSym);
                             return [this];
                         } else if (token.type == 'character' && token.cat == data.cats.param && !skip) {
@@ -7034,7 +7197,6 @@
                                 if (index.cat == data.cats.param) skip = true;
                             } else {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(defSym);
                                 return [this];
                             }
@@ -7101,7 +7263,6 @@
                     var dimen = e.mouth.eat('integer');
                     if (!dimen || dimen.value < 0) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
                     if (!data.registers.dimen[dimen.value]) {
@@ -7117,7 +7278,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -7128,7 +7288,6 @@
                     if (name.type == 'command') {
                         if (name.name in data.defs.primitive || name.name in data.parameters) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(dimenDefSym);
                             return [true];
                         }
@@ -7137,7 +7296,6 @@
                         var integer = e.mouth.eat('integer');
                         if (!integer || integer.value < 0) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(dimenDefSym);
                             return [true];
                         }
@@ -7162,7 +7320,6 @@
                         }
                     } else {
                         this.invalid = true;
-                        this.recognized = true;
                         e.mouth.loadState(countDefSym);
                         return [true];
                     }
@@ -7176,7 +7333,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -7193,7 +7349,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -7208,7 +7363,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -7232,7 +7386,6 @@
                                 } else if (token) e.mouth.revert();
                                 else {
                                     this.invalid = true;
-                                    this.recognized = true;
                                     e.mouth.loadState(divideSym);
                                     return [this];
                                 }
@@ -7319,20 +7472,17 @@
                                     }
                                 } else {
                                     this.invalid = true;
-                                    this.recognized = true;
                                     e.mouth.loadState(divideSym);
                                     return [this];
                                 }
                                 break;
                             } else {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(divideSym);
                                 return [this]
                             }
                         } else {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(divideSym);
                             return [this];
                         }
@@ -7358,7 +7508,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -7367,7 +7516,6 @@
                     var name = e.mouth.eat();
                     if (!name) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
                     var type;
@@ -7377,7 +7525,6 @@
                             name = name.char;
                         } else {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(defSym);
                             return [this];
                         }
@@ -7386,7 +7533,6 @@
                         name = name.name;
                         if (name in e.scopes.last.defs.primitive || name in data.parameters) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(defSym);
                             return [this];
                         }
@@ -7398,7 +7544,6 @@
                         var token = e.mouth.eat();
                         if (!token) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(defSym);
                             return [this];
                         } else if (token.cat == data.cats.open) {
@@ -7408,7 +7553,6 @@
                             var paramTok = e.mouth.eat('pre space');
                             if (!paramTok) {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(defSym);
                                 return [this];
                             } else if (paramTok.cat == data.cats.open) {
@@ -7425,7 +7569,6 @@
                                 used++;
                             } else {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(defSym);
                                 return [this];
                             }
@@ -7444,7 +7587,6 @@
 
                         if (!token) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(defSym);
                             return [this];
                         } else if (token.type == 'character' && token.cat == data.cats.param && !skip) {
@@ -7454,7 +7596,6 @@
                                 if (index.cat == data.cats.param) skip = true;
                             } else {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(defSym);
                                 return [this];
                             }
@@ -7484,7 +7625,6 @@
                             // If it doesn't have a definition, return invalid.
                             if (!macro) {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(defSym);
                                 return [this];
                             }
@@ -7514,7 +7654,6 @@
                                 var expansion = e.mouth.expand(token, e.mouth);
                                 if (expansion.length == 1 && expansion[0] === token && token.invalid) {
                                     this.invalid = true;
-                                    this.recognized = true;
                                     e.mouth.loadState(defSym);
                                     return [this];
                                 }
@@ -7568,7 +7707,6 @@
                     // return invalid.
 
                     this.invalid = true;
-                    this.recognized = true;
                     return [this];
                 }),
                 endcsname: new Primitive('endcsname', function(e) {
@@ -7579,14 +7717,12 @@
                     // returns invalid instead of actually doing anything. It's only here to be used in
                     // csname.
                     this.invalid = true;
-                    this.recognized = true;
                     return [this];
                 }),
                 endgroup: new Primitive('endgroup', function(e) {
                     // \endgroup closes groups opened by \begingroup.
                     if (!e.openGroups.length || e.scopes.last.delimited || e.scopes.last.isHalign || e.scopes.last.isHalignCell || !e.scopes.last.semisimple || e.contexts.last != 'scope') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -7639,7 +7775,6 @@
                     var token = e.mouth.eat();
                     if (!token || token.type != 'character' || token.cat != data.cats.open) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     } else {
                         var openGroups = 0,
@@ -7649,7 +7784,6 @@
 
                             if (!token) {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(errSym);
                                 return [this];
                             } else if (token.type == 'character' && token.cat == data.cats.open) {
@@ -7693,7 +7827,6 @@
                     var first = e.mouth.eat();
                     if (!first) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -7703,7 +7836,6 @@
                         expansion = e.mouth.expand(second, e.mouth);
                     if (expansion.length == 1 && expansion[0] === second && second.invalid) {
                         this.invalid = true;
-                        this.recognized = true;
                         e.mouth.loadState(expandAfterSym);
                         return [this];
                     }
@@ -7717,7 +7849,6 @@
                     // mands. It should always return invalid. \fi is used to close \if blocks.
 
                     this.invalid = true;
-                    this.recognized = true;
                     return [this];
                 }),
                 futurelet: new Primitive('futurelet', function(e) {
@@ -7730,7 +7861,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -7740,7 +7870,6 @@
                     var name = e.mouth.eat();
                     if (!name) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
                     var type;
@@ -7750,7 +7879,6 @@
                             name = name.char;
                         } else {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(letSym);
                             return [this];
                         }
@@ -7759,7 +7887,6 @@
                         name = name.name;
                         if (name in e.scopes.last.defs.primitive || name in data.parameters) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(letSym);
                             return [this];
                         }
@@ -7774,7 +7901,6 @@
 
                     if (!token1) {
                         this.invalid = true;
-                        this.recognized = true;
                         e.mouth.loadState(letSym);
                         return [this];
                     }
@@ -7783,7 +7909,6 @@
 
                     if (!token2) {
                         this.invalid = true;
-                        this.recognized = true;
                         e.mouth.loadState(letSym);
                         return [this];
                     } else if (token2.type == 'command' || token2.type == 'character' && token2.cat == data.cats.active) {
@@ -7853,7 +7978,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -7862,7 +7986,6 @@
                     var name = e.mouth.eat();
                     if (!name) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
                     var type;
@@ -7872,7 +7995,6 @@
                             name = name.char;
                         } else {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(defSym);
                             return [this];
                         }
@@ -7881,7 +8003,6 @@
                         name = name.name;
                         if (name in e.scopes.last.defs.primitive || name in data.parameters) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(defSym);
                             return [this];
                         }
@@ -7893,7 +8014,6 @@
                         var token = e.mouth.eat();
                         if (!token) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(defSym);
                             return [this];
                         } else if (token.cat == data.cats.open) {
@@ -7903,7 +8023,6 @@
                             var paramTok = e.mouth.eat('pre space');
                             if (!paramTok) {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(defSym);
                                 return [this];
                             } else if (paramTok.cat == data.cats.open) {
@@ -7920,7 +8039,6 @@
                                 used++;
                             } else {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(defSym);
                                 return [this];
                             }
@@ -7935,7 +8053,6 @@
                         var token = e.mouth.eat();
                         if (!token) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(defSym);
                             return [this];
                         } else if (token.type == 'character' && token.cat == data.cats.param && !skip) {
@@ -7945,7 +8062,6 @@
                                 if (index.cat == data.cats.param) skip = true;
                             } else {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(defSym);
                                 return [this];
                             }
@@ -7990,7 +8106,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -8036,7 +8151,6 @@
                     var token = e.mouth.eat();
                     if (!token || token.cat != data.cats.open) {
                         this.invalid = true;
-                        this.recognized = true;
                         e.mouth.loadState(halignSym);
                         return [this];
                     }
@@ -8052,7 +8166,6 @@
 
                         if (!token) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(halignSym);
                             return [this];
                         } else if (token.type == 'command' || token.type == 'character' && token.car == data.cats.active) {
@@ -8083,7 +8196,6 @@
                                     break;
                                 } else {
                                     this.invalid = true;
-                                    this.recognized = true;
                                     e.mouth.loadState(halignSym);
                                     return [this];
                                 }
@@ -8141,14 +8253,12 @@
 
                                 if (!next) {
                                     this.invalid = true;
-                                    this.recognized = true;
                                     e.mouth.loadState(halignSym);
                                     return [this];
                                 }
                                 var expansion = e.mouth.expand(next, e.mouth);
                                 if (expansion.length == 1 && expansion[0] === next && next.invalid) {
                                     this.invalid = true;
-                                    this.recognized = true;
                                     e.mouth.loadState(halignSym);
                                     return [this];
                                 }
@@ -8161,7 +8271,6 @@
                                     // A parameter token was already found for the current column, which makes this
                                     // preamble cell invalid.
                                     this.invalid = true;
-                                    this.recognized = true;
                                     e.mouth.loadState(halignSym);
                                     return [this];
                                 }
@@ -8189,7 +8298,6 @@
                                         // The last cell doesn't include a parameter token, which makes the cell an invalid
                                         // preamble.
                                         this.invalid = true;
-                                        this.recognized = true;
                                         e.mouth.loadState(halignSym);
                                         return [this];
                                     }
@@ -8201,7 +8309,6 @@
                                 // This is copied from above.
                                 if (preamble[preamble.length - 1][1]) {
                                     this.invalid = true;
-                                    this.recognized = true;
                                     e.mouth.loadState(halignSym);
                                     return [this];
                                 }
@@ -8217,7 +8324,6 @@
                                         tabSkips.push(new GlueReg(e.scopes.last.registers.named.tabskip));
                                     } else {
                                         this.invalid = true;
-                                        this.recognized = true;
                                         e.mouth.loadState(halignSym);
                                         return [this];
                                     }
@@ -8309,7 +8415,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -8328,7 +8433,6 @@
 
                         if (!token) {
                             this.invalid = true;
-                            this.recognized = true;
                             return [this];
                         }
 
@@ -8350,13 +8454,11 @@
                                     break;
                                 } else {
                                     this.invalid = true;
-                                    this.recognized = true;
                                     e.mouth.loadState(hboxSym);
                                     return [this];
                                 }
                             } else {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(hboxSym);
                                 return [this];
                             }
@@ -8374,7 +8476,6 @@
                                 !a || a.type != 'character' || a.char != 'a' && a.char != 'A' || a.cat == data.cats.active ||
                                 !d || d.type != 'character' || d.char != 'd' && d.char != 'D' || d.cat == data.cats.active) {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(hboxSym);
                                 return [this];
                             }
@@ -8384,7 +8485,6 @@
                                 break;
                             } else {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(hboxSym);
                                 return [this];
                             }
@@ -8397,7 +8497,6 @@
                             // Some invalid token was found. The argument to \hbox wasn't correct and it should
                             // return invalid.
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(hboxSym);
                             return [this];
                         }
@@ -8407,7 +8506,6 @@
                     var open = e.mouth.preview();
                     if (!open || open.type != 'character' || open.cat != data.cats.open) {
                         this.invalid = true;
-                        this.recognized = true;
                         e.mouth.loadState(hboxSym);
                         return [this];
                     }
@@ -8438,7 +8536,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -8454,7 +8551,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -8471,14 +8567,12 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
                     var glue = e.mouth.eat('glue');
                     if (!glue) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
                     e.tokens.push({
@@ -8519,7 +8613,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -8539,7 +8632,6 @@
 
                         if (!token) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(ifSym);
                             return [this];
                         } else if (token.type == 'character' && token.cat == data.cats.whitespace && tokens.length == 0) {
@@ -8566,7 +8658,6 @@
                             // If it doesn't have a definition, return invalid.
                             if (!macro) {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(ifSym);
                                 return [this];
                             }
@@ -8595,7 +8686,6 @@
                                 var expansion = e.mouth.expand(token, e.mouth);
                                 if (expansion.length == 1 && expansion[0] === token && token.invalid) {
                                     this.invalid = true;
-                                    this.recognized = true;
                                     e.mouth.loadState(ifSym);
                                     return [this];
                                 }
@@ -8619,7 +8709,6 @@
                             var expansion = e.mouth.expand(token, e.mouth);
                             if (expansion.length == 1 && expansion[0] ==- token && token.invalid) {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(ifSym);
                                 return [this];
                             }
@@ -8643,7 +8732,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -8654,7 +8742,6 @@
                     var int = e.mouth.eat('integer');
                     if (!int) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -8681,7 +8768,6 @@
 
                         if (!token) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(stateSymbol);
                             return [this];
                         } else if (token.type == 'command' || token.type == 'character' && token.cat == data.cats.active) {
@@ -8769,7 +8855,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -8789,7 +8874,6 @@
 
                         if (!token) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(ifSym);
                             return [this];
                         } else if (token.type == 'character' && token.cat == data.cats.whitespace && tokens.length == 0) {
@@ -8816,7 +8900,6 @@
                             // If it doesn't have a definition, return invalid.
                             if (!macro) {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(ifSym);
                                 return [this];
                             }
@@ -8845,7 +8928,6 @@
                                 var expansion = e.mouth.expand(token, e.mouth);
                                 if (expansion.length == 1 && expansion[0] === token && token.invalid) {
                                     this.invalid = true;
-                                    this.recognized = true;
                                     e.mouth.loadState(ifSym);
                                     return [this];
                                 }
@@ -8869,7 +8951,6 @@
                             var expansion = e.mouth.expand(token, e.mouth);
                             if (expansion.length == 1 && expansion[0] ==- token && token.invalid) {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(ifSym);
                                 return [this];
                             }
@@ -8888,7 +8969,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -8899,7 +8979,6 @@
                     var dim1 = e.mouth.eat('dimension');
                     if (!dim1) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
                     dim1 = dim1.sp.value + dim1.em.value * 12;
@@ -8909,7 +8988,6 @@
                     var operator = e.mouth.eat();
                     if (!operator || (operator.cat == data.cats.active && (operator.char == '<' || operator.char == '=' || operator.char == '>'))) {
                         this.invalid = true;
-                        this.recognized = true;
                         e.mouth.loadState(ifSym);
                         return [this];
                     }
@@ -8918,7 +8996,6 @@
                     var dim2 = e.mouth.eat('dimension');
                     if (!dim2) {
                         this.invalid = true;
-                        this.recognized = true;
                         e.mouth.loadState(ifSym);
                         return [this];
                     }
@@ -8933,7 +9010,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -8951,7 +9027,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -8965,7 +9040,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -8976,7 +9050,6 @@
                     var int = e.mouth.eat('integer');
                     if (!int) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -8988,7 +9061,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -8999,7 +9071,6 @@
                     var int1 = e.mouth.eat('integer');
                     if (!int1) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -9008,7 +9079,6 @@
                     var operator = e.mouth.eat();
                     if (!operator || (operator.cat == data.cats.active && (operator.char == '<' || operator.char == '=' || operator.char == '>'))) {
                         this.invalid = true;
-                        this.recognized = true;
                         e.mouth.loadState(ifSym);
                         return [this];
                     }
@@ -9017,7 +9087,6 @@
                     var int2 = e.mouth.eat('integer');
                     if (!int2) {
                         this.invalid = true;
-                        this.recognized = true;
                         e.mouth.loadState(ifSym);
                         return [this];
                     }
@@ -9031,7 +9100,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -9049,7 +9117,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -9064,7 +9131,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -9078,7 +9144,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -9093,7 +9158,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -9108,7 +9172,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -9127,7 +9190,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -9138,14 +9200,12 @@
                     var token1 = e.mouth.eat();
                     if (!token1) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
                     var token2 = e.mouth.eat('pre space');
                     if (!token2) {
                         this.invalid = true;
-                        this.recognized = true;
                         e.mouth.loadState(ifSym);
                         return [this];
                     }
@@ -9214,7 +9274,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -9231,14 +9290,12 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
                     var dimen = e.mouth.eat('dimension');
                     if (!dimen) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
                     e.tokens.push({
@@ -9258,7 +9315,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -9268,7 +9324,6 @@
                         return [e.scopes.last.lc[integer.value] = e.scopes.last.lc[integer.value] || new IntegerReg(0)];
                     } else {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
                 }),
@@ -9279,7 +9334,6 @@
                     // First make sure no superscript or subscript context is open.
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -9317,7 +9371,6 @@
                             break;
                         } else {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(leftSym);
                             return [this];
                         }
@@ -9331,7 +9384,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -9341,7 +9393,6 @@
                     var name = e.mouth.eat();
                     if (!name) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
                     var type;
@@ -9351,7 +9402,6 @@
                             name = name.char;
                         } else {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(letSym);
                             return [this];
                         }
@@ -9360,7 +9410,6 @@
                         name = name.name;
                         if (name in e.scopes.last.defs.primitive || name in data.parameters) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(letSym);
                             return [this];
                         }
@@ -9373,7 +9422,6 @@
 
                     if (!token) {
                         this.invalid = true;
-                        this.recognized = true;
                         e.mouth.loadState(letSym);
                         return [this];
                     } else if (token.type == 'command' || token.type == 'character' && token.cat == data.cats.active) {
@@ -9442,7 +9490,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -9463,14 +9510,12 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
                     var dimen = e.mouth.eat('dimension');
                     if (!dimen) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
                     // Since \lower makes items go down (negative height), the dimension is inverted to
@@ -9493,7 +9538,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -9503,7 +9547,6 @@
                     var open = e.mouth.eat('pre space');
                     if (!open || open.cat != data.cats.open) {
                         this.invalid = true;
-                        this.recognized = true;
                         e.mouth.loadState(lcSym);
                         return [this];
                     }
@@ -9515,7 +9558,6 @@
 
                         if (!token) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(lcSym);
                             return [this];
                         } else if (token.type == 'character' && token.cat == data.cats.open) {
@@ -9547,7 +9589,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -9569,7 +9610,6 @@
                     var charCode = e.mouth.eat('integer');
                     if (!charCode || charCode.value < 0) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -9580,33 +9620,20 @@
                         charCode.value = code;
                     } else var family = 0;
 
-                    // If the context is a superscript or subscript, the family of the character won't
-                    // matter. Spacing doesn't happen around superscript and subscript tokens. If it's
-                    // not a superscript/subscript, then the character will be parsed as if it had been
-                    // preceded by a \mathbin, \mathclose, \mathinner, etc.
-                    if (e.contexts.last != 'superscript' && e.contexts.last != 'subscript') {
-                        e.tokens.push({
-                            type: 'family modifier',
-                            value: family,
-                            token: this
-                        });
-                    }
-
                     // The token will be parsed and put into a nucleus/superscript/subscript naturally.
                     e.mouth.queue.unshift({
                         type: 'character',
                         cat: data.cats.all,
                         char: String.fromCharCode(charCode.value),
-                        code: charCode.value
+                        code: charCode.value,
+                        forcedMathCode: family
                     });
                     return [];
                 }),
                 mathchardef: new Primitive('mathchardef', function(e) {
                     // A combination of \mathchar and \chardef.
-
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -9617,7 +9644,6 @@
                     if (name && name.type == 'command') {
                         if (name.name in data.defs.primitive || name.name in data.parameters) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(charDefSym);
                             return [true];
                         }
@@ -9626,7 +9652,6 @@
                         var integer = e.mouth.eat('integer');
                         if (!integer || integer.value < 0) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(charDefSym);
                             return [true];
                         }
@@ -9639,15 +9664,11 @@
                         } else var family = 0;
 
                         var macro = new Macro([{
-                            type: 'command',
-                            escapeChar: this.escapeChar,
-                            name: 'math' + ['ord', 'op', 'bin', 'rel', 'open', 'close', 'punct', 'inner'][family],
-                            nameType: 'command'
-                        },{
                             type: 'character',
                             cat: data.cats.all,
                             char: String.fromCharCode(integer.value),
-                            code: integer.value
+                            code: integer.value,
+                            forcedMathCode: family
                         }], []);
                         if (e.toggles.global && e.scopes.last.registers.named.globaldefs.value >= 0 || e.scopes.last.registers.named.globaldefs.value > 0) {
                             data.defs.macros[name.name] = macro;
@@ -9663,7 +9684,6 @@
                         e.toggles.global = false;
                     } else {
                         this.invalid = true;
-                        this.recognized = true;
                         e.mouth.loadState(charDefSym);
                         return [true];
                     }
@@ -9688,11 +9708,16 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
-                    var token = this;
+                    var token = {
+                        type: 'command',
+                        nameType: 'command',
+                        escapeChar: this.escapeChar,
+                        name: 'mathchoice',
+                        recognized: true
+                    };
                     e.contexts.push({
                         toString: function() {return 'mathchoice'},
                         token: token,
@@ -9715,15 +9740,14 @@
                             this.token.ignore = false;
                         }
                     });
-                    e.tokens.push(this);
-                    this.ignore = true;
+                    e.tokens.push(token);
+                    token.ignore = true;
                 }),
                 mathclose: new Primitive('mathclose', function(e) {
                     // Look at the description of \mathbin.
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -9734,12 +9758,41 @@
                     });
                     return [];
                 }),
+                mathcode: new Primitive('mathcode', function(e) {
+                    // \mathcode is like \catcode. It returns the mathcode of a character, which is
+                    // mostly in charge of how characters are spaced (it also lets you have active
+                    // character that still behave like regular character).
+
+                    if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
+                        this.invalid = true;
+                        return [this];
+                    }
+
+                    var charCode = e.mouth.eat('integer');
+
+                    if (charCode) {
+                        if (charCode.value < 0) {
+                            e.mouth.revert();
+                            this.invalid = true;
+                            return [this];
+                        }
+                        if (!(charCode.value in data.mathcodes)) {
+                            data.mathcodes[charCode.value] = new IntegerReg(data.mathcodes.ord, 0, 8);
+                            for (var i = 0, l = e.scopes.length; i < l; i++) {
+                                e.scopes[i].mathcodes[charCode.value] = new IntegerReg((i == 0 ? data : e.scopes[i - 1]).mathcodes[charCode.value]);
+                            }
+                        }
+                        return [e.scopes.last.mathcodes[charCode.value]];
+                    } else {
+                        this.invalid = true;
+                        return [this];
+                    }
+                }),
                 mathinner: new Primitive('mathinner', function(e) {
                     // Look at the description of \mathbin.
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -9755,7 +9808,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -9771,7 +9823,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -9787,7 +9838,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -9803,7 +9853,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -9819,7 +9868,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -9840,7 +9888,6 @@
                     var token = e.mouth.eat();
                     if (!token || token.type != 'character' || token.cat != data.cats.open) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     } else {
                         var openGroups = 0,
@@ -9850,7 +9897,6 @@
 
                             if (!token) {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(errSym);
                                 return [this];
                             } else if (token.type == 'character' && token.cat == data.cats.open) {
@@ -9875,14 +9921,12 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
                     var dimen = e.mouth.eat('mu dimension');
                     if (!dimen) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
                     e.tokens.push({
@@ -9901,14 +9945,12 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
                     var glue = e.mouth.eat('mu glue');
                     if (!glue) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
                     e.tokens.push({
@@ -9922,7 +9964,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -9946,7 +9987,6 @@
                                 } else if (token) e.mouth.revert();
                                 else {
                                     this.invalid = true;
-                                    this.recognized = true;
                                     e.mouth.loadState(multiplySym);
                                     return [this];
                                 }
@@ -10033,20 +10073,17 @@
                                     }
                                 } else {
                                     this.invalid = true;
-                                    this.recognized = true;
                                     e.mouth.loadState(multiplySym);
                                     return [this];
                                 }
                                 break;
                             } else {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(multiplySym);
                                 return [this]
                             }
                         } else {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(multiplySym);
                             return [this];
                         }
@@ -10058,14 +10095,12 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
                     var muglue = e.mouth.eat('integer');
                     if (!muglue || muglue.value < 0) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
                     if (!data.registers.muskip[muglue.value]) {
@@ -10081,7 +10116,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -10092,7 +10126,6 @@
                     if (name.type == 'command') {
                         if (name.name in data.defs.primitive || name.name in data.parameters) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(skipDefSym);
                             return [true];
                         }
@@ -10101,7 +10134,6 @@
                         var integer = e.mouth.eat('integer');
                         if (!integer || integer.value < 0) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(skipDefSym);
                             return [true];
                         }
@@ -10126,7 +10158,6 @@
                         }
                     } else {
                         this.invalid = true;
-                        this.recognized = true;
                         e.mouth.loadState(countDefSym);
                         return [true];
                     }
@@ -10143,13 +10174,11 @@
                     var token = e.mouth.eat();
                     if (!token) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
                     e.mouth.revert();
                     if (token.type == 'command' || token.type == 'character' && token.cat == data.cats.active) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
                     return [];
@@ -10159,7 +10188,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -10182,7 +10210,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -10198,7 +10225,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -10232,7 +10258,6 @@
                     // ken).
 
                     this.invalid = true;
-                    this.recognized = true;
                     return [this];
                 }),
                 or: new Primitive('or', function(e) {
@@ -10240,7 +10265,6 @@
                     // function is only called when in an invalid context.
 
                     this.invalid = true;
-                    this.recognized = true;
                     return [this];
                 }),
                 over: new Primitive('over', function(e) {
@@ -10251,7 +10275,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -10277,7 +10300,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -10293,7 +10315,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -10316,7 +10337,6 @@
                             }
                         } else {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(overDelimsSym);
                             delete e.scopes.last.fracLeftDelim;
                             return [this];
@@ -10338,14 +10358,12 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
                     var dimen = e.mouth.eat('dimension');
                     if (!dimen) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
                     e.tokens.push({
@@ -10370,7 +10388,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -10381,14 +10398,12 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
                     // First, check if the last group actually exists and was opened by a \left.
                     if (!e.openGroups.length || !e.scopes.last.delimited || e.scopes.last.isHalign || e.scopes.last.isHalignCell || e.scopes.last.semisimple) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -10405,7 +10420,6 @@
                         } else if (token && token.type == 'character' && data.delims.includes(token.code) && (token.cat == data.cats.all || token.cat == data.cats.letter)) {
                             if (e.contexts.last != 'scope') {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(rightSym);
                                 return [this];
                             }
@@ -10454,7 +10468,6 @@
                             break;
                         } else {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(rightSym);
                             return [this];
                         }
@@ -10465,7 +10478,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -10487,12 +10499,10 @@
                     var integer = e.mouth.eat('integer');
                     if (!integer) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
                     if (integer.value <= 0) {
                         this.invalid = true;
-                        this.recognized = true;
                         e.mouth.revert();
                         return [this];
                     }
@@ -10535,7 +10545,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -10551,7 +10560,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -10575,7 +10583,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -10583,7 +10590,6 @@
                         token = e.mouth.eat();
                     if (!token) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
                     var string = '"' + this.escapeChar + this.name + preString.substring(0, preString.length - e.mouth.string.length) + '":\n';
@@ -10597,10 +10603,11 @@
                             _msg(string + token.escapeChar + token.name + '=' + String.fromCharCode(e.scopes.last.registers.named.escapechar.value) + (macro.original || macro).name);
                             return [];
                         } else if (macro.isLet) {
-                            string += token.escapeChar + token.name + '=';
+                            string += (token.escapeChar + token.name || token.char) + '=';
                             token = macro.original.replacement[0];
                         } else {
-                            string += token.escapeChar + token.name + '=macro:\n';
+                            if (macro.proxy) macro = macro.original;
+                            string += (token.escapeChar + token.name || token.char) + '=macro:\n';
                             var paramNum = 0;
                             for (var i = 0, l = macro.parameters.length; i < l; i++) {
                                 if (macro.parameters[i].type == 'character' && macro.parameters[i].cat != data.cats.param) string += macro.parameters[i].char;
@@ -10723,7 +10730,6 @@
                             return [];
                         } else {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(theSym);
                             return [this];
                         }
@@ -10734,14 +10740,12 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
                     var glue = e.mouth.eat('integer');
                     if (!glue || glue.value < 0) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
                     if (!data.registers.skip[glue.value]) {
@@ -10757,7 +10761,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -10768,7 +10771,6 @@
                     if (name.type == 'command') {
                         if (name.name in data.defs.primitive || name.name in data.parameters) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(skipDefSym);
                             return [true];
                         }
@@ -10777,7 +10779,6 @@
                         var integer = e.mouth.eat('integer');
                         if (!integer || integer.value < 0) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(skipDefSym);
                             return [true];
                         }
@@ -10802,7 +10803,6 @@
                         }
                     } else {
                         this.invalid = true;
-                        this.recognized = true;
                         e.mouth.loadState(countDefSym);
                         return [true];
                     }
@@ -10812,7 +10812,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -10833,7 +10832,6 @@
 
                     if (!e.scopes.last.isHalignCell || e.contexts.last != 'scope') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -10854,12 +10852,10 @@
                             tokens = repeatable[(column - halignScope.repeatPreambleAt) % repeatable.length][1];
                         } else {
                             this.invalid = true;
-                            this.recognized = true;
                             return [this];
                         }
                         if (!halignScope.preamble[column + 1] && !~halignScope.repeatPreambleAt) {
                             this.invalid = true;
-                            this.recognized = true;
                             return [this];
                         }
                         this.postPreamble = true;
@@ -11000,7 +10996,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -11020,7 +11015,6 @@
                     var token = e.mouth.eat();
                     if (!token) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -11042,7 +11036,6 @@
                         });
                     } else {
                         this.invalid = true;
-                        this.recognized = true;
                         e.mouth.revert();
                         return [this];
                     }
@@ -11053,7 +11046,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -11168,7 +11160,6 @@
                             }
                         } else {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(theSym);
                             return [this];
                         }
@@ -11189,7 +11180,6 @@
                         return [e.scopes.last.uc[integer.value] = e.scopes.last.uc[integer.value] || new IntegerReg(0)];
                     } else {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
                 }),
@@ -11198,7 +11188,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -11215,7 +11204,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -11225,7 +11213,6 @@
                     var open = e.mouth.eat();
                     if (!open || open.cat != data.cats.open) {
                         this.invalid = true;
-                        this.recognized = true;
                         e.mouth.loadState(ucSym);
                         return [this];
                     }
@@ -11237,7 +11224,6 @@
 
                         if (!token) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(ucSym);
                             return [this];
                         } else if (token.type == 'character' && token.cat == data.cats.open) {
@@ -11268,7 +11254,6 @@
                         var token = e.mouth.eat();
                         if (!token) {
                             this.invalid = true;
-                            this.recognized = true;
                             return [this];
                         }
                         if (token.type == 'command' || token.type == 'character' && token.cat == data.cats.active) {
@@ -11286,13 +11271,11 @@
                                     break;
                                 } else {
                                     this.invalid = true;
-                                    this.recognized = true;
                                     e.mouth.loadState(vboxSym);
                                     return [this];
                                 }
                             } else {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(vboxSym);
                                 return [this];
                             }
@@ -11308,7 +11291,6 @@
                                 !a || a.type != 'character' || a.char != 'a' && a.char != 'A' || a.cat == data.cats.active ||
                                 !d || d.type != 'character' || d.char != 'd' && d.char != 'D' || d.cat == data.cats.active) {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(vboxSym);
                                 return [this];
                             }
@@ -11318,7 +11300,6 @@
                                 break;
                             } else {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(vboxSym);
                                 return [this];
                             }
@@ -11327,7 +11308,6 @@
                             return [];
                         } else {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(vboxSym);
                             return [this];
                         }
@@ -11335,7 +11315,6 @@
                     var open = e.mouth.preview();
                     if (!open || open.type != 'character' || open.cat != data.cats.open) {
                         this.invalid = true;
-                        this.recognized = true;
                         e.mouth.loadState(vboxSym);
                         return [this];
                     }
@@ -11355,7 +11334,6 @@
                     // centered vertically on the line when rendered.
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -11372,7 +11350,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -11387,7 +11364,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
@@ -11402,14 +11378,12 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
 
                     var glue = e.mouth.eat('glue');
                     if (!glue) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
                     e.tokens.push({
@@ -11424,7 +11398,6 @@
 
                     if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
                     var defSym = Symbol();
@@ -11432,7 +11405,6 @@
                     var name = e.mouth.eat();
                     if (!name) {
                         this.invalid = true;
-                        this.recognized = true;
                         return [this];
                     }
                     var type;
@@ -11442,7 +11414,6 @@
                             name = name.char;
                         } else {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(defSym);
                             return [this];
                         }
@@ -11451,7 +11422,6 @@
                         name = name.name;
                         if (name in e.scopes.last.defs.primitive || name in data.parameters) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(defSym);
                             return [this];
                         }
@@ -11463,7 +11433,6 @@
                         var token = e.mouth.eat();
                         if (!token) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(defSym);
                             return [this];
                         } else if (token.cat == data.cats.open) {
@@ -11473,7 +11442,6 @@
                             var paramTok = e.mouth.eat('pre space');
                             if (!paramTok) {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(defSym);
                                 return [this];
                             } else if (paramTok.cat == data.cats.open) {
@@ -11490,7 +11458,6 @@
                                 used++;
                             } else {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(defSym);
                                 return [this];
                             }
@@ -11504,7 +11471,6 @@
                         var token = e.mouth.eat();
                         if (!token) {
                             this.invalid = true;
-                            this.recognized = true;
                             e.mouth.loadState(defSym);
                             return [this];
                         } else if (token.type == 'character' && token.cat == data.cats.param && !skip) {
@@ -11514,7 +11480,6 @@
                                 if (index.cat == data.cats.param) skip = true;
                             } else {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(defSym);
                                 return [this];
                             }
@@ -11540,7 +11505,6 @@
                             var macro = token.type == 'command' ? e.scopes.last.defs.primitive[token.name] || e.scopes.last.defs.macros[token.name] : e.scopes.last.defs.active[token.char];
                             if (!macro) {
                                 this.invalid = true;
-                                this.recognized = true;
                                 e.mouth.loadState(defSym);
                                 return [this];
                             }
@@ -11568,7 +11532,6 @@
                                 var expansion = e.mouth.expand(token, e.mouth);
                                 if (expansion.length == 1 && expansion[0] === token && token.invalid) {
                                     this.invalid = true;
-                                    this.recognized = true;
                                     e.mouth.loadState(defSym);
                                     return [this];
                                 }
@@ -11664,33 +11627,16 @@
                 // This is where active characters' definitions are stored. In plain TeX, only the
                 // tilde ~ character is an active character that evaluates to a no-break-space
                 // character. The tilde character's definition is below, after the `data' object's
-                // definition. The apostrophe character also has an active character definition,
-                // even though it isn't an active character. Because it has mathcode 8 though, its
-                // active character definition is used (in this case, an apostrophe translates to
-                // "^{\prime}" assuming \prime expands to ′).
-                "'": new Macro([
-                    {
-                        type: 'character',
-                        cat: 7,
-                        char: '^',
-                        code: 94
-                    },{
-                        type: 'character',
-                        cat: 1,
-                        char: '{',
-                        code: 123
-                    },{
-                        type: 'character',
-                        cat: 12,
-                        char: '′',
-                        code: 8242
-                    },{
-                        type: 'character',
-                        cat: 2,
-                        char: '}',
-                        code: 125
-                    }
-                ], [])
+                // definition. Plain TeX also includes an active character definition for apostro-
+                // phes so that they will evaluate to "^{\prime}". With TeX's built in fonts, that
+                // isn't a problem since the prime character is huge. When it's shrunken into a
+                // superscript, it actually looks like an apostrophe. With normal fonts though,
+                // the chance that the prime character is enlarged is pretty low. The chance that
+                // a prime character even exists is even lower since it's such an uncommon charac-
+                // ter. If this version of TeX used a prime character too, apostrophes would almost
+                // always looks out of place, especially since most fonts do have a perfectly good
+                // apostrophe glyph since it's way more common. Thus, the apostrophe character is
+                // left alone so that it can render as it self instead of as a prime character.
             }
         },
         registers: {
@@ -11828,21 +11774,21 @@
         // valid (DELETE).
         cats: (function() {
             var obj = {
-                0x5C: new IntegerReg(0),
-                0x7B: new IntegerReg(1),
-                0x7D: new IntegerReg(2),
-                0x24: new IntegerReg(3),
-                0x26: new IntegerReg(4),
-                0x0A: new IntegerReg(5),
-                0x23: new IntegerReg(6),
-                0x5E: new IntegerReg(7),
-                0x5F: new IntegerReg(8),
-                0x00: new IntegerReg(9),
-                0x09: new IntegerReg(10),
-                0x20: new IntegerReg(10),
-                0x7E: new IntegerReg(13),
-                0x25: new IntegerReg(14),
-                0x7F: new IntegerReg(15),
+                0x5C: new IntegerReg(0, 0, 15),  // \
+                0x7B: new IntegerReg(1, 0, 15),  // {
+                0x7D: new IntegerReg(2, 0, 15),  // }
+                0x24: new IntegerReg(3, 0, 15),  // $
+                0x26: new IntegerReg(4, 0, 15),  // &
+                0x0A: new IntegerReg(5, 0, 15),  // \n
+                0x23: new IntegerReg(6, 0, 15),  // #
+                0x5E: new IntegerReg(7, 0, 15),  // ^
+                0x5F: new IntegerReg(8, 0, 15),  // _
+                0x00: new IntegerReg(9, 0, 15),  // null character (U+0000)
+                0x09: new IntegerReg(10, 0, 15), // tab character (U+0009)
+                0x20: new IntegerReg(10, 0, 15), // space character (U+0020)
+                0x7E: new IntegerReg(13, 0, 15), // ~
+                0x25: new IntegerReg(14, 0, 15), // %
+                0x7F: new IntegerReg(15, 0, 15), // delete character (U+007F)
                 escape: 0,
                 open: 1,
                 close: 2,
@@ -11870,17 +11816,48 @@
         // extra spacing around it to make "1+1" appear not as crunched together. The Vari-
         // able family is treated exactly like the Ord family except they are rendered in
         // italics. Other than that, they are basically synonymous with Ord.
-        mathcodes: [
-            'ΓΔΘΛΞΠΣΥΦΨΩℵℏıȷℓ℘∂∞′∅∇√⊤⊥∥∠△∖∀∃¬♭♮♯♣♢♡♠←⟵↑⇐⟸⇑→⟶↓⇒⟹⇓↔⟷↕⇔⟺⇕↦⟼↗↩↪↘↼⇀↙↽⇁↖⇌§¶@#$%^_|', // Ord(inary)
-            '', // Op(erator)
-            '+-*±∓∖⋅×∗⋆⋄∘∙÷∩∪⊎⊓⊔◃▹≀◯△▽∨∧⊕⊖⊗⊘⊙†‡⨿', // Bin(ary)
-            '<>=:"≤≺⪯≪⊂⊆⊏⊑∈⊢⌣⌢≥≻⪰≫⊃⊇⊐⊒∋⊣≡∼≃≍≈≅⋈∝⊨≐⊥≮≰⊀⊄⊈⋢≯≱⊁⊅⊉⋣≠≢≁≄≆≭', // Rel(ation)
-            '([{`', // Open
-            '}])!?', // Close
-            ',;', // Punct(uation)
-            'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZαβγδϵεζηθϑικλμνξπϖρϱσςτυϕφχψω', // Variable
-            "'" // Active
-        ],
+        mathcodes: (function() {
+            var obj = {
+                ord: 0,
+                op: 1,
+                bin: 2,
+                rel: 3,
+                open: 4,
+                close: 5,
+                punct: 6,
+                variable: 7,
+                active: 8
+            };
+            var op    = '',
+                bin   = '+-*±∓∖×∗⋆⋄∘∙÷∩∪⊎⊓⊔◃▹≀◯△▽∨∧⊕⊖⊗⊘⊙†‡⨿',
+                rel   = '<>=:"≤≺⪯≪⊂⊆⊏⊑∈⊢⌣⌢≥≻⪰≫⊃⊇⊐⊒∋⊣≡∼≃≍≈≅⋈∝⊨≐⊥≮≰⊀⊄⊈⋢≯≱⊁⊅⊉⋣≠≢≁≄≆≭',
+                open  = '([{`',
+                close = '}])!?',
+                punct = ',;',
+                vari  = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZαβγδϵεζηθϑικλμνξπϖρϱσςτυϕφχψω'
+            for (var i = 0, l = op.length; i < l; i++) {
+                obj[op.charCodeAt(i)] = new IntegerReg(1, 0, 8);
+            }
+            for (var i = 0, l = bin.length; i < l; i++) {
+                obj[bin.charCodeAt(i)] = new IntegerReg(2, 0, 8);
+            }
+            for (var i = 0, l = rel.length; i < l; i++) {
+                obj[rel.charCodeAt(i)] = new IntegerReg(3, 0, 8);
+            }
+            for (var i = 0, l = open.length; i < l; i++) {
+                obj[open.charCodeAt(i)] = new IntegerReg(4, 0, 8);
+            }
+            for (var i = 0, l = close.length; i < l; i++) {
+                obj[close.charCodeAt(i)] = new IntegerReg(5, 0, 8);
+            }
+            for (var i = 0, l = punct.length; i < l; i++) {
+                obj[punct.charCodeAt(i)] = new IntegerReg(6, 0, 8);
+            }
+            for (var i = 0, l = vari.length; i < l; i++) {
+                obj[vari.charCodeAt(i)] = new IntegerReg(7, 0, 8);
+            }
+            return obj;
+        })(),
         delims: [
             // Lists the charCodes of each character allowed to be a delimiter (like after
             // \left). If a character is found in a delimiter context that doesn't have one of
@@ -11979,9 +11956,6 @@
             0x03C4: new IntegerReg(0x03A4), 0x03C5: new IntegerReg(0x03A5), 0x03C6: new IntegerReg(0x03A6), 0x03C7: new IntegerReg(0x03A7), 0x03C8: new IntegerReg(0x03A8), 0x03C9: new IntegerReg(0x03A9),
         }
     }
-    data.mathcodes.ord = 0, data.mathcodes.op = 1, data.mathcodes.bin = 2,
-    data.mathcodes.rel = 3, data.mathcodes.open = 4, data.mathcodes.close = 5,
-    data.mathcodes.punct = 6, data.mathcodes.variable = 7, data.mathcodes.active = 8;
 
     // The definition for \crcr is exactly the same as \cr (it's just ignored in cert-
     // ain cases.
@@ -12272,7 +12246,6 @@
         \\chardef\\rmoustache="23B1\n\
         \\chardef\\S="00A7\n\
         \\chardef\\ss="00DF\n\
-        \\chardef\\to="2192\n\
         \\chardef\\Vert="2016\n\
         \\chardef\\vert=`\\|\n\
         \\chardef\\Uparrow="21D1\n\
@@ -12281,102 +12254,134 @@
         \\chardef\\Updownarrow="21D5\n\
         \\mathchardef\\alpha="003B1\n\
         \\mathchardef\\beta="003B2\n\
-        \\mathchardef\\gamma="003B3\n\
+        \\mathchardef\\chi="003C7\n\
+        \\mathchardef\\colon="6003A\n\
         \\mathchardef\\delta="003B4\n\
         \\mathchardef\\epsilon="003F5\n\
-        \\mathchardef\\zeta="003B6\n\
         \\mathchardef\\eta="003B7\n\
-        \\mathchardef\\theta="003B8\n\
+        \\mathchardef\\gamma="003B3\n\
+        \\mathchardef\\imath="70131\n\
+        \\mathchardef\\intop="1222B \\def\\int{\\intop\\nolimits}\n\
         \\mathchardef\\iota="003B9\n\
+        \\mathchardef\\jmath="70237\n\
         \\mathchardef\\kappa="003BA\n\
         \\mathchardef\\lambda="003BB\n\
+        \\mathchardef\\leftarrow="32190 \\let\\gets=\\leftarrow\n\
+        \\mathchardef\\Leftarrow="321D0\n\
+        \\mathchardef\\leftrightarrow="32194\n\
+        \\mathchardef\\Leftrightarrow="321D4\n\
+        \\mathchardef\\ldotp="6002E\n\
         \\mathchardef\\mu="003BC\n\
         \\mathchardef\\nu="003BD\n\
-        \\mathchardef\\xi="003BE\n\
+        \\mathchardef\\omega="003C9\n\
+        \\mathchardef\\phi="003D5\n\
         \\mathchardef\\pi="003C0\n\
+        \\mathchardef\\psi="003C8\n\
         \\mathchardef\\rho="003C1\n\
+        \\mathchardef\\rightarrow="32192 \\let\\to=\\rightarrow\n\
+        \\mathchardef\\Rightarrow="321D2\n\
         \\mathchardef\\sigma="003C3\n\
         \\mathchardef\\tau="003C4\n\
+        \\mathchardef\\theta="003B8\n\
         \\mathchardef\\upsilon="003C5\n\
-        \\mathchardef\\phi="003D5\n\
-        \\mathchardef\\chi="003C7\n\
-        \\mathchardef\\psi="003C8\n\
-        \\mathchardef\\omega="003C9\n\
         \\mathchardef\\varepsilon="003B5\n\
-        \\mathchardef\\vartheta="003D1\n\
+        \\mathchardef\\varphi="003C6\n\
         \\mathchardef\\varpi="003D6\n\
         \\mathchardef\\varrho="003F1\n\
         \\mathchardef\\varsigma="003C2\n\
-        \\mathchardef\\varphi="003C6\n\
-        \\mathchardef\\Gamma="70393\n\
-        \\mathchardef\\Delta="70394\n\
-        \\mathchardef\\Theta="70398\n\
-        \\mathchardef\\Lambda="7039B\n\
-        \\mathchardef\\Xi="7039E\n\
-        \\mathchardef\\Pi="703A0\n\
-        \\mathchardef\\Sigma="703A3\n\
-        \\mathchardef\\Upsilon="703A5\n\
-        \\mathchardef\\Phi="703A6\n\
-        \\mathchardef\\Psi="703A8\n\
-        \\mathchardef\\Omega="703A9\n\
-        \\mathchardef\\intop="1222B \\def\\int{\\intop\\nolimits}\n\
-        \\def\\~{\\accent"007E}\n\
+        \\mathchardef\\vartheta="003D1\n\
+        \\mathchardef\\xi="003BE\n\
+        \\mathchardef\\zeta="003B6\n\
+        \\mathchardef\\Delta="00394\n\
+        \\mathchardef\\Gamma="00393\n\
+        \\mathchardef\\Lambda="0039B\n\
+        \\mathchardef\\Omega="003A9\n\
+        \\mathchardef\\Phi="003A6\n\
+        \\mathchardef\\Pi="003A0\n\
+        \\mathchardef\\Psi="003A8\n\
+        \\mathchardef\\Sigma="003A3\n\
+        \\mathchardef\\Theta="00398\n\
+        \\mathchardef\\Upsilon="003A5\n\
+        \\mathchardef\\Xi="0039E\n\
+        \\def\\~{\\accent"02DC }\n\
         \\def\\,{\\mskip\\thinmuskip}\n\
         \\def\\>{\\mskip\\medmuskip}\n\
         \\def\\;{\\mskip\\thickmuskip}\n\
         \\def\\!{\\mskip-\\thinmuskip}\n\
-        \\def\\dot{\\accent"02D9 }\n\
-        \\def\\ddot{\\accent"00A8 }\n\
-        \\def\\lq{`}\n\
-        \\def\\rq{\'}\n\
-        \\def\\lbrack{[}\n\
-        \\def\\rbrack{]}\n\
-        \\let\\endline=\\cr\n\
+        \\def\\"{\\accent"A8 }\n\
+        \\def\\={\\accent"AF }\n\
+        \\def\\^{\\accent"5E }\n\
+        \\def\\.{\\accent"02D9 }\n\
+        \\def\\acute{\\accent"B4 }\n\
         \\def\\arccos{\\mathop{\\rm arccos}\\nolimits}\n\
         \\def\\arcsin{\\mathop{\\rm arcsin}\\nolimits}\n\
         \\def\\arctan{\\mathop{\\rm arctan}\\nolimits}\n\
         \\def\\arg{\\mathop{\\rm arg}\\nolimits}\n\
+        \\def\\bar{\\accent"AF }\n\
         \\def\\bmod{\\nonscript\\mskip-\\medmuskip\\mkern5mu\\mathbin{\\rm mod}\\mkern5mu\\nonscript\\mskip-\\medmuskip}\n\
+        \\def\\breve{\\accent"02D8 }\n\
+        \\def\\cdot{\\mathbin{\\vcenter.}}}\n\
+        \\def\\cdotp{\\mathpunct{\\vcenter.}}}\n\
+        \\def\\cdots{\\mathinner{\\cdotp\\cdotp\\cdotp}}\n\
+        \\def\\check{\\accent"02C7 }\n\
         \\def\\cos{\\mathop{\\rm cos}\\nolimits}\n\
         \\def\\cosh{\\mathop{\\rm cosh}\\nolimits}\n\
         \\def\\cot{\\mathop{\\rm cot}\\nolimits}\n\
         \\def\\coth{\\mathop{\\rm coth}\\nolimits}\n\
         \\def\\csc{\\mathop{\\rm csc}\\nolimits}\n\
+        \\def\\ddot{\\accent"A8 }\n\
         \\def\\deg{\\mathop{\\rm deg}\\nolimits}\n\
         \\def\\det{\\mathop{\\rm det}}\n\
         \\def\\dim{\\mathop{\\rm dim}\\nolimits}\n\
+        \\def\\dot{\\accent"02D9 }\n\
+        \\def\\empty{}\n\
         \\def\\exp{\\mathop{\\rm exp}\\nolimits}\n\
         \\def\\gcd{\\mathop{\\rm gcd}}\n\
+        \\def\\grave{\\accent"60 }\n\
+        \\def\\H{\\accent"02DD }\n\
+        \\def\\hat{\\accent"5E }\n\
         \\def\\hom{\\mathop{\\rm hom}\\nolimits}\n\
         \\def\\inf{\\mathop{\\rm inf}}\n\
+        \\def\\iterate{\\body \\let\\next=\\iterate\\else\\let\\next=\\relax\\fi\\next}\n\
+        \\def\\joinrel{\\mathrel{\\mkern-3mu}}\n\
         \\def\\ker{\\mathop{\\rm ker}\\nolimits}\n\
+        \\def\\lbrack{[}\n\
+        \\def\\ldots{\\mathinner{\\ldotp\\ldotp\\ldotp}}\n\
         \\def\\lg{\\mathop{\\rm lg}\\nolimits}\n\
         \\def\\lim{\\mathop{\\rm lim}}\n\
         \\def\\liminf{\\mathop{\\rm lim\\,inf}}\n\
         \\def\\limsup{\\mathop{\\rm lim\\,sup}}\n\
         \\def\\ln{\\mathop{\\rm ln}\\nolimits}\n\
         \\def\\log{\\mathop{\\rm log}\\nolimits}\n\
+        \\def\\loop#1\\repeat{\\def\\body{#1}\\iterate}\n\
+        \\def\\lq{`}\n\
         \\def\\max{\\mathop{\\rm max}}\n\
         \\def\\min{\\mathop{\\rm min}}\n\
+        \\def\\null{\\hbox{}}\n\
         \\def\\pmod#1{\\mkern18mu({\\rm mod}\\,\\,#1)}\n\
         \\def\\Pr{\\mathop{\\rm Pr}}\n\
+        \\def\\rbrack{]}\n\
+        \\def\\rq{\'}\n\
         \\def\\sec{\\mathop{\\rm sec}\\nolimits}\n\
         \\def\\sin{\\mathop{\\rm sin}\\nolimits}\n\
         \\def\\sinh{\\mathop{\\rm sinh}\\nolimits}\n\
+        \\def\\skew#1#2#3{{\\muskip0 #1mu\\divide\\muskip0by2 \\mkern\\muskip0%\n\
+            #2{\\mkern-\\muskip0{#3}\\mkern\\muskip0}\\mkern-\\muskip0}{}}\n\
         \\def\\sup{\\mathop{\\rm sup}}\n\
+        \\def\\t{\\accent"0311 }\n\
         \\def\\tan{\\mathop{\\rm tan}\\nolimits}\n\
         \\def\\tanh{\\mathop{\\rm tanh}\\nolimits}\n\
+        \\def\\TeX{T\\kern-.1667em{\\lower.5exE}\\kern-.125emX}\n\
+        \\def\\tilde{\\accent"02DC }\n\
+        \\def\\u{\\accent"02D8 }\n\
+        \\def\\v{\\accent"02C7 }\n\
         \\let\\bgroup={\n\
         \\let\\egroup=}\n\
-        \\def\\space{ }\n\
-        \\def\\empty{}\n\
-        \\def\\null{\\hbox{}}\n\
-        \\def\\obeyspaces{\\catcode`\\ =\\active}\n\
-        \\obeyspaces\\let =\\space\n\
-        \\catcode`\\ =10\n\
-        \\def\\loop#1\\repeat{\\def\\body{#1}\\iterate}\n\
-        \\def\\iterate{\\body \\let\\next=\\iterate\\else\\let\\next=\\relax\\fi\\next}\n\
+        \\let\\endline=\\cr\n\
         \\let\\repeat=\\fi\n\
+        \\def\\obeyspaces{\\catcode`\\ =13\\relax}\n\
+        \\catcode`\\ =12\\def\\space{ }\\obeyspaces\\let =\\space\n\
+        \\catcode`\\ =10\n\
         \\def\\thinspace{\\kern.1667em}\n\
         \\def\\negthinspace{\\kern-.1667em}\n\
         \\def\\enspace{\\kern.5em}\n\
@@ -12386,8 +12391,11 @@
         \\def\\smallskip{\\vskip\\smallskipamount}\n\
         \\def\\medskip{\\vskip\\medskipamount}\n\
         \\def\\bigskip{\\vskip\\bigskipamount}\n\
-        \\def~{\\char"00A0}\n\
-        \\def\\strut{\\vbox to 1.2em{}}\n\
+        \\def~{\\char"00A0\\relax}\n\
+        \\mathcode`\\⋅=8 \\catcode`\\⋅=\\active\n\
+        \\def⋅{\\mathchoice{\\mathbin{\\vcenter.}}{\\mathbin{\\vcenter.}}{{\\vcenter.}}{{\\vcenter.}}}\n\
+        \\catcode`\\⋅=12\n\
+        \\def\\strut{\\vbox to 1.1em{}}\n\
         \\newcount\\mscount\n\
         \\def\\multispan#1{\\omit \\mscount#1\\relax\\loop\\ifnum\\mscount>1\\sp@n\\repeat}\n\
         \\def\\sp@n{\\span\\omit\\advance\\mscount-1}\n\
@@ -12397,7 +12405,7 @@
         \\def\\brack{\\atopwithdelims[]}\n\
         \\def\\brace{\\atopwithdelims\\{\\}}\n\
         \\def\\mathpalette#1#2{\\mathchoice{#1\\displaystyle{#2}}{#1\\textstyle{#2}}{#1\\scriptstyle{#2}}{#1\\scriptscriptstyle{#2}}}\n\
-        \\def\\frac#1#2{\\mathinner{#1\\over#2}}\n\
+        \\def\\frac#1#2{{#1\\over#2}}\n\
         \\def\\mathrm#1{{\\rm#1}}\n\
         \\def\\textrm#1{{\\rm#1}}\n\
         \\def\\mathbf#1{{\\bf#1}}\n\
@@ -12447,13 +12455,12 @@
             if (!this.isInit) this.init();
 
             style = ({
-                undefined: '',
                 nm: '',
                 rm: '',
                 sl: 'oblique',
                 it: 'italic',
                 bf: 'bold'
-            })[style];
+            })[style || 'nm'];
 
             // Return the cached value if one exists.
             if (this.cache[family] && this.cache[family][style] && this.cache[family][style][string] && !isNaN(this.cache[family][style][string].width)) return this.cache[family][style][string].width;
@@ -12470,13 +12477,12 @@
             if (!this.isInit) this.init();
 
             style = ({
-                undefined: '',
                 nm: '',
                 rm: '',
                 sl: 'oblique',
                 it: 'italic',
                 bf: 'bold'
-            })[style];
+            })[style || 'nm'];
 
             if (this.cache[family] && this.cache[family][style] && this.cache[family][style][string] && !isNaN(this.cache[family][style][string].vWidth)) return this.cache[family][style][string].vWidth;
             // Visible width measurements work by drawing the string on the canvas first. Each
@@ -12624,13 +12630,12 @@
             if (!this.isInit) this.init();
 
             style = ({
-                undefined: '',
                 nm: '',
                 rm: '',
                 sl: 'oblique',
                 it: 'italic',
                 bf: 'bold'
-            })[style];
+            })[style || 'nm'];
 
             // Visible height of a character is measured similar to how width is measured. Only
             // the part of the character above the baseline is included in the height. The part
@@ -12687,13 +12692,12 @@
             if (!this.isInit) this.init();
 
             style = ({
-                undefined: '',
                 nm: '',
                 rm: '',
                 sl: 'oblique',
                 it: 'italic',
                 bf: 'bold'
-            })[style];
+            })[style || 'nm'];
 
             // Visible height of a character is measured similar to how width is measured. Only
             // the part of the character below the baseline is included in the depth. The part
@@ -12703,9 +12707,17 @@
             // itioned right below the lowest character in a set. If you have the word "you"
             // underlined for example, the underline will appear below the "y" because it has
             // the lowest descender. If there was no "y" in the word, the underline would ap-
-            // pear higher, under the "ou" since they're the next lowest characters.
+            // pear higher, under the "ou" since they're the next lowest characters. There's
+            // another version of `depthOf' called `trueDepthOf'. This version will return the
+            // amount of space the character takes up under the baseline. For a character like
+            // "-", it has no space below the baseline, so this will return 0. But its "true"
+            // depth can also be negative. "-" doesn't start perfectly at the baseline, it has
+            // a bit of space even above the baseline before the character actually starts. So
+            // the real difference between `depthOf' and `trueDepthOf' is that `depthOf' will
+            // always return nonnegative numbers. `trueDepthOf' may return the same thing (if
+            // the `depthOf' the character is positive), or a negative number.
 
-            if (this.cache[family] && this.cache[family][style] && this.cache[family][style][string] && !isNaN(this.cache[family][style][string].depth)) return this.cache[family][style][string].depth;
+            if (this.cache[family] && this.cache[family][style] && this.cache[family][style][string] && !isNaN(this.cache[family][style][string].depth)) return Math.max(0, this.cache[family][style][string].depth);
 
             // An alphabetic baseline is used for the same reason as when the height was being
             // measured. The only difference is that the character being measured is placed at
@@ -12722,7 +12734,7 @@
                 this.context.clearRect(0, 0, 150, 150);
                 var scale = Math.pow(2, iteration);
                 this.context.font = (style || '') + ' ' + (100 * scale) + 'px ' + family;
-                this.context.fillText(string, 75 + 150 * scale * (.5 - rectX), 75 + 150 * scale * -rectY);
+                this.context.fillText(string, 75 + 150 * scale * (.5 - rectX), 75 + 150 * scale * (.5 - rectY));
                 var data = this.context.getImageData(0, 0, 150, 150).data,
                     foundRow = false,
                     col = 0;
@@ -12737,7 +12749,7 @@
                     }
                     if (foundRow) break;
                 }
-                if (foundRow === false && iteration == 0) return 0
+                if (foundRow === false && iteration == 0) return .5;
                 if (alpha > 250) return rectY + (row / 150 - .5) / Math.pow(2, iteration);
                 return measure.call(this, rectX + (col / 150 - .5) / Math.pow(2, iteration), rectY + (row / 150 - .5) / Math.pow(2, iteration), iteration + 1);
             }
@@ -12745,7 +12757,20 @@
             this.cache[family] = this.cache[family] || {};
             this.cache[family][style] = this.cache[family][style] || {};
             this.cache[family][style][string] = this.cache[family][style][string] || {};
-            return this.cache[family][style][string].depth = measure.call(this, .5, .5, 0) * 1.5;
+            return Math.max(0, this.cache[family][style][string].depth = (measure.call(this, .5, .5, 0) - .5) * 1.5);
+        },
+        trueDepthOf: function(string, family, style) {
+            // The difference between `depthOf' and `trueDepthOf' is explained above in the
+            // definition of `depthOf'.
+
+            this.depthOf(string, family, style);
+            return this.cache[family][style = ({
+                nm: '',
+                rm: '',
+                sl: 'oblique',
+                it: 'italic',
+                bf: 'bold'
+            })[style || 'nm']][string].depth;
         },
         italCorrOf: function(string, family) {
             if (!this.isInit) this.init();
@@ -12807,13 +12832,12 @@
             if (!this.isInit) this.init();
 
             style = ({
-                undefined: '',
                 nm: '',
                 rm: '',
                 sl: 'oblique',
                 it: 'italic',
                 bf: 'bold'
-            })[style];
+            })[style || 'nm'];
 
             if (this.cache[family] && this.cache[family][style] && this.cache[family][style][string] && !isNaN(this.cache[family][style][string].leftOffset)) return this.cache[family][style][string].leftOffset;
 
@@ -12935,30 +12959,6 @@
         },
         isInit: false,
         cache: {}
-    }
-
-    // This function is used to get the height of an element relative to its width.
-    // It quickly appends `element' to `parent' (to let it inherit any styles necessary
-    // to measure it), get its bounding rectangles, then removes it from `parent'.
-    // Since font-size of the element will not be known yet (it may change depending on
-    // the TeX used to render it), only the relative height is returned since that will
-    // never change, even if the font-size does. The returned value is height/width.
-    fontTeX._relHeightOf = function(element, parent) {
-        // Some style are added to the element to make sure the user never notices that
-        // it's being added to the DOM.
-        var opacity = element.style.opacity,
-            pointerEvents = element.style.pointerEvents,
-            position = element.style.position;
-        element.style.opacity = 0;
-        element.style.pointerEvents = 'none';
-        element.style.position = 'absolute';
-        parent.appendChild(element);
-        var rect = element.getBoundingClientRect();
-        parent.removeChild(element);
-        element.style.opacity = opacity;
-        element.style.pointerEvents = pointerEvents;
-        element.style.position = position;
-        return rect.height / rect.width;
     }
 
     fontTeX._debug = {
