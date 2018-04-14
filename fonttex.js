@@ -18,9 +18,9 @@
 
 
     // If, for whatever reason, someone loaded two version of fontTeX, the one with the
-    // latest version number ones. They're compared as string instead of numbers to
+    // latest version number wins. They're compared as string instead of numbers to
     // handle version numbers with double digits like 1.10.15.
-    var current = '0.2';
+    var current = '0.3';
     if (fontTeX.version) {
         if (current.split('.').map(function(number) {
             return String.fromCharCode(48 + +number);
@@ -31,6 +31,78 @@
         };
     }
     fontTeX.version = current;
+
+
+    // The user can change some of the options on fontTeX to configure it to how they
+    // want it to behave.
+    fontTeX.config = function(name, value) {
+        var keys = ['autoupdate','autoupdaterate','parsehtml'],
+            returnValue = null;
+        if (typeof name == 'string' && keys.includes(name.toLowerCase())) {
+            if (arguments.length > 1) {
+                settings[name.toLowerCase()] = value;
+            }
+            returnValue = settings[name.toLowerCase()];
+        } else if (name) {
+            var returnValue = {};
+            for (var i = 0, l = keys.length; i < l; i++) {
+                var key = keys[i];
+                if (key in name) {
+                    settings[key] = name[key];
+                }
+                returnValue[key] = settings[key];
+            }
+        }
+
+        // If 'autoupdate' was changed, the listener controlling the auto updates might
+        // need to be stopped or restarted.
+        if (!!styleChangeListener.interval != !!settings.autoupdate || styleChangeListener.rate != settings.autoupdaterate) {
+            clearInterval(styleChangeListener.interval);
+            styleChangeListener.rate = Math.max(settings.autoupdaterate, 0) || styleChangeListener.rate;
+            if (settings.autoupdate && Math.max(settings.autoupdaterate, 0)) {
+                styleChangeListener.interval = setInterval(styleChangeListener.listener, styleChangeListener.rate);
+            } else styleChangeListener.interval = 0;
+        }
+
+        return returnValue;
+    }
+    // The functions above are just an interface to change the values in the real ob-
+    // ject below.
+    var settings = {
+        autoupdate: true,
+        autoupdaterate: 3000,
+        parsehtml: true
+    };
+
+    // `styleChangeListener' is an object dedicated to listening for style changes in
+    // an element with rendered TeX. Every 3000 milliseconds (can be changed using
+    // `fontTeX.config'), a function is run that checks whether the font-size or font-
+    // family of an element has changed since the last time it was executed. If there
+    // was a change, that element's TeX is re-rendered to match the new styles.
+    var styleChangeListener = {
+        interval: 0,
+        data: [],
+        rate: settings.autoupdaterate,
+        listener: function updateTeX() {
+            var data = styleChangeListener.data,
+                updates = 0;
+            for (var i = 0, l = data.length; i < l; i++) {
+                if (data[i].styles.fontSize != data[i].oldFontSize || data[i].styles.fontFamily != data[i].oldFontFamily) {
+                    data[i].texInstance.renderIn(data[i].elem);
+                    data[i].oldFontSize = data[i].styles.fontSize;
+                    data[i].oldFontFamily = data[i].styles.fontFamily;
+                    updates++;
+                }
+            }
+            return updates;
+        }
+    }
+    styleChangeListener.interval = setInterval(styleChangeListener.listener, settings.autoupdaterate);
+
+    // If the user decides to change the style on an element with TeX in it, but they
+    // don't want to wait the three seconds and instead want to change it immediately,
+    // they can call `fontTeX.updateTeX()' to force an update to happen right away.
+    fontTeX.updateTeX = styleChangeListener.listener;
 
 
     // Since `console.log' is actually used in some of the TeX commands here, I figured
@@ -46,48 +118,176 @@
     // from this function's `in' function (e.g. fontTeX.render('TeX').in('#id')).
     fontTeX.render = function render(TeXstring) {
         // This function is used to tell the script what to parse. The only argument should
-        // be a string (it's converted into one if it't not). That string will first be
+        // be a string (it's converted into one if it's not). That string will first be
         // passed to the TeX processor, where anything between certain delimiters will be
-        // parsed as TeX. Delimiters include $$ ... $$ and \[ ... \] for displayed equa-
-        // tions and $ ... $ and \( ... \) for inline equations. Any HTML inside the delim-
-        // iters will be parsed as TeX and won't contribute to the HTML outside the delimi-
-        // iters (i.e. you can't start HTML outside the TeX and close it inside or vice
-        // versa). After that, the parts of the string that weren't parsed as TeX inside
-        // the delimiters will be parsed as HTML and a document fragment will be made. The
-        // object returned from this function will be a ParsedFontTeX object. Calling its
-        // `in' or `renderIn' method will let you display the document fragment inside any
-        // (non-self-closing) element.
+        // parsed as TeX.
+
+        // TL;DR: all the following are valid delimiters:
+        // Displayed: \[ ... \]  |  \[ ... $$  |  $$ ... \]  |  $$ ... $$
+        // Inline: \( ... \)  |  \( ... $  |  $ ... \)  |  $ ... $
+        // If a command is found (a character with catcode 0 followed by
+        // letters or a single non-letter), it's looked up in `data'. If it's definition
+        // matches that of "\[" (either because it is literally "\[", or because it has
+        // been \let to "\["), then a new displayed equation is started. That displayed
+        // equation must be terminated by "\]" (or a \let equivalent), or by a double math
+        // shift token combo. If a "\(" (or \let equivalent) is found, an inline equation
+        // is started. It must be terminated by a "\)" (or \let equivalent) or a single
+        // math shift token. A math shift token is any character whose mathcode is 3 (by
+        // default, only the dollar sign $ character is a math shift token), or a command
+        // whose definition has been \let to a math shift token (e.g. \let\macro=$). If a
+        // math shift token is found while parsing the string, the character immediately
+        // following it is checked. If it is also a math shift token, a new displayed equa-
+        // tion is started (which can be terminated by "\]" or another double math shift
+        // token combo). If the original math shift token was not followed by another math
+        // shift token, an inline equation is started instead (terminated by "\)" or an-
+        // other single math shift token).
 
         var content = [],
             origString = TeXstring;
         while (TeXstring) {
-            if (TeXstring[0] == '$' && TeXstring[1] == '$' || TeXstring[0] == '\\' && TeXstring[1] == '[') {
-                // This indicates the start of a displayed math equation. The rest of the string is
-                // passed over to the `fontTeX._tokenize' function, where all the processing takes
-                // place. Once a closing delimiter is found ($$, \], or a command that expands to
-                // \]), the token list is returned along with any part of the string that wasn't
-                // parsed.
-                var tokens = fontTeX._tokenize(TeXstring.substring(2), 'display');
-                // The return value from `_tokenize' is a two-long array. The first item is an ar-
-                // ray of tokens. The second is the string that was left over after parsing.
-                if (!tokens[2]) {
-                    content.push(TeXstring);
-                    TeXstring = '';
-                    break;
+            // Check if the character has a catcode associated with it. All characters technic-
+            // ally have a catcode associated with it, but if it's not stored manually in
+            // `data.cats', it mean it has a catcode of 12, which doesn't matter in this case.
+            if (TeXstring.charCodeAt(0) in data.cats) {
+
+                // This is like a smaller version of the `Mouth' class. If the first character of
+                // string has catcode 3 (math shift), it'll return the token right away. If the
+                // first character has catcode 13 (active), it'll try to expand the token, but only
+                // if it has been \let. It won't expand tokens that have been \def-ined since def-
+                // initions can have more than one token. If the active character has been let to
+                // either the \( primitive or the \[ primitive, or to a math shift token, it will
+                // return that. If it hasn't been \let to any of those things, it will ignore the
+                // token. If the first character of the string is of catcode 0 (escape token), it
+                // will look at the macro name after it and try to expand it the way it would for
+                // an active character token.
+                function eat(index) {
+                    var char = TeXstring[index] || '',
+                        cat = data.cats[char.charCodeAt(0)];
+                    if (!cat || (cat.value != 0 && cat.value != 3 && cat.value != 13)) return [{}, 0];
+                    cat = cat.value;
+
+                    if (cat == data.cats.escape) {
+                        if (TeXstring.charCodeAt(index + 1) in data.cats && data.cats[TeXstring.charCodeAt(index + 1)].value == data.cats.letter) {
+                            var name = '';
+                            for (var i = index + 1; TeXstring[i] && TeXstring.charCodeAt(i) in data.cats && data.cats[TeXstring.charCodeAt(i)].value == data.cats.letter; i++) {
+                                name += TeXstring[i];
+                            }
+                            if (data.defs.macros[name]) var macro = data.defs.macros[name];
+                            else return [{}, 0];
+                        } else if (TeXstring[index + 1] && (data.defs.primitive[TeXstring[index + 1]] || data.defs.macros[TeXstring[index + 1]])) {
+                            var name = TeXstring[index + 1],
+                                macro = data.defs.primitive[TeXstring[index + 1]] || data.defs.macros[TeXstring[index + 1]];
+                        } else {
+                            return [{}, 0];
+                        }
+
+                        var wasLet = false;
+                        if (macro.isLet) {
+                            macro = macro.original;
+                            wasLet = true;
+                        }
+                        if (macro === data.defs.primitive['[']) {
+                            return [{
+                                type: 'command',
+                                name: '[',
+                                cat: -1
+                            }, name.length + 1];
+                        } else if (macro === data.defs.primitive['(']) {
+                            return [{
+                                type: 'command',
+                                name: '(',
+                                cat: -1
+                            }, name.length + 1];
+                        } else if (wasLet && macro.replacement && macro.replacement.length == 1 && macro.replacement[0].cat == data.cats.math) {
+                            return [{
+                                char: char,
+                                cat: data.cats.math
+                            }, name.length + 1];
+                        } else {
+                            return [{}, 0];
+                        }
+                    } else if (cat == data.cats.math) {
+                        return [{
+                            char: char,
+                            cat: data.cats.math
+                        }, 1];
+                    } else if (cat == data.cats.active && data.defs.active[char]) {
+                        if (data.defs.active[char].isLet && data.defs.active[char].original === data.defs.primitive['[']) {
+                            return [{
+                                type: 'command',
+                                name: '[',
+                                cat: -1
+                            }, 1];
+                        } else if (data.defs.active[char].isLet && data.defs.active[char].original === data.defs.primitive['(']) {
+                            return [{
+                                type: 'command',
+                                name: '(',
+                                cat: -1
+                            }, 1];
+                        } else if (data.defs.active[char].isLet && data.defs.active[char].original.replacement &&
+                            data.defs.active[char].original.replacement.length == 1 &&
+                            data.defs.active[char].original.replacement[0].cat == data.cats.math) {
+                            return [{
+                                char: char,
+                                cat: data.cats.math
+                            }, 1];
+                        } else {
+                            return [{}, 0];
+                        }
+                    }
                 }
-                TeXstring = tokens[1];
-                content.push([tokens[0], 'display']);
-            } else if (TeXstring[0] == '$' || TeXstring[0] == '\\' && TeXstring[1] == '(') {
-                // This indicates the start of an inline math equation. It is parsed the same way
-                // as a displayed equation, except the closing delimiter must be a $ or \).
-                var tokens = fontTeX._tokenize(TeXstring.substring(1), 'inline');
-                if (!tokens[2]) {
-                    content.push(TeXstring);
-                    TeXstring = '';
-                    break;
+
+                var token = eat(0),
+                    type = null,
+                    length = 0;
+                if (token[0].cat == 3) {
+                    length += token[1];
+                    var token2 = eat(token[1])
+                    if (token2[0].cat == 3) {
+                        type = 'display';
+                        length += token2[1];
+                    } else {
+                        type = 'inline';
+                    }
+                } else if (token[0].type == 'command' && token[0].name == '[') {
+                    type = 'display';
+                    length += token[1];
+                } else if (token[0].type == 'command' && token[0].name == '(') {
+                    type = 'inline';
+                    length += token[1];
                 }
-                TeXstring = tokens[1];
-                content.push([tokens[0], 'text']);
+
+                if (type == 'display') {
+                    // This indicates the start of a displayed math equation. The rest of the string is
+                    // passed over to the `fontTeX._tokenize' function, where all the processing takes
+                    // place. Once a closing delimiter is found, the token list is returned along with
+                    // any part of the string that wasn't parsed.
+                    var tokens = fontTeX._tokenize(TeXstring.substring(length), 'display');
+                    // The return value from `_tokenize' is a two-long array. The first item is an ar-
+                    // ray of tokens. The second is the string that was left over after parsing.
+                    if (!tokens[2]) {
+                        content.push(TeXstring);
+                        TeXstring = '';
+                        break;
+                    }
+                    TeXstring = tokens[1];
+                    content.push([tokens[0], 'display']);
+                } else if (type == 'inline') {
+                    // This indicates the start of an inline math equation. It is parsed the same way
+                    // as a displayed equation, except the closing delimiter must be a $ or \).
+                    var tokens = fontTeX._tokenize(TeXstring.substring(length), 'inline');
+                    if (!tokens[2]) {
+                        content.push(TeXstring);
+                        TeXstring = '';
+                        break;
+                    }
+                    TeXstring = tokens[1];
+                    content.push([tokens[0], 'text']);
+                } else {
+                    if (typeof content[content.length - 1] == 'string') content[content.length - 1] += TeXstring[0];
+                    else content.push(TeXstring[0]);
+                    TeXstring = TeXstring.substring(1);
+                }
             } else {
                 if (typeof content[content.length - 1] == 'string') content[content.length - 1] += TeXstring[0];
                 else content.push(TeXstring[0]);
@@ -129,16 +329,109 @@
                     // This is where all the rendering happens.
                     arg[i].innerHTML = '';
 
-                    var family = getComputedStyle(arg[i]).fontFamily,
-                        html = '';
-                    for (var n = 0, j = tokens.length; n < j; n++) {
-                        if (typeof tokens[n] == 'string') {
-                            html += tokens[n];
-                        } else {
-                            html += fontTeX._genHTML(arg[i], tokens[n][0], tokens[n][1], family).outerHTML;
+                    // The CSS styles associated with the element are gotten once for each element that
+                    // is used to hold TeX. Even if the element gets used again later to hold something
+                    // different, it still doesn't get the styles again; it'll reuse the old CSSStyle-
+                    // Declaration object.
+                    if (arg[i].hasAttribute('data-fontTeX-container-id')) {
+                        var data = styleChangeListener.data,
+                            index = +arg[i].getAttribute('data-fontTeX-container-id'),
+                            cssDeclaration = styleChangeListener.data[index].styles;
+
+                        data[index] = {
+                            elem: arg[i],
+                            styles: data[index].styles,
+                            texInstance: this,
+                            oldFontFamily: cssDeclaration.fontFamily,
+                            oldFontSize: cssDeclaration.fontSize
+                        };
+                    } else {
+                        var data = styleChangeListener.data,
+                            index = data.length,
+                            cssDeclaration = getComputedStyle(arg[i]);
+                        arg[i].setAttribute('data-fontTeX-container-id', index);
+
+                        data[index] = {
+                            elem: arg[i],
+                            styles: cssDeclaration,
+                            texInstance: this,
+                            oldFontFamily: cssDeclaration.fontFamily,
+                            oldFontSize: cssDeclaration.fontSize
+                        };
+                    }
+
+
+                    if (!settings.parsehtml) {
+                        // If the user has configured it so that HTML is NOT parsed, the list of tokens is
+                        // added to a document fragment either as elements (for TeX math lists) or text
+                        // nodes (for everything outside of the TeX math lists).
+                        var frag = document.createDocumentFragment();
+                        for (var n = 0, j = tokens.length; n < j; n++) {
+                            if (typeof tokens[n] == 'string') {
+                                frag.appendChild(document.createTextNode(tokens[n]));
+                            } else {
+                                frag.appendChild(fontTeX._genHTML(arg[i], tokens[n][0], tokens[n][1], cssDeclaration));
+                            }
+                        }
+                        arg[i].appendChild(frag);
+                    } else {
+                        // If HTML is being parsed, it becomes a tad harder. `fontTeX._genHTML' returns a
+                        // <div> with all the elements necessary to render the TeX. It must stay as an
+                        // element and cannot be converted to a string via .innerHTML because it contains
+                        // canvases. If a <canvas> is turned into a string and turned back into a canvas
+                        // laster, everything that had been drawn on the canvas disappears. We also can't
+                        // just create a TextNode like in the previous block of code because then it won't
+                        // parse as HTML, it'll just be plain text. If we can't convert everything to a
+                        // string, and we can't make everything its own element, we have to do something
+                        // in between. First, `html' is set to an empty string. If a non-TeX token is found
+                        // (to be parsed as HTML), it's added directly to `html'. It will be parsed later
+                        // when it's added to a document fragment. If a TeX math list token is found, we
+                        // need to "save" its position in the `html' string to know where it goes relative
+                        // to the text around it. Instead of turning it to a string, a temporary element
+                        // (or rather a string representing the HTML of a temporary element) is added to
+                        // `html'. It will have a unique identifying attribute set on it that will be able
+                        // to reference which TeX <div> applies to that ID. Once the entire token list has
+                        // been exhausted and `html' is done being added to, a new parent <div> is created
+                        // that will contain all the HTML from `html'. `html' will be added as that
+                        // <div>'s innerHTML (thus being parsed and rendered into HTML in the process).
+                        // Now, each temporary element that was created before will be replaced with the
+                        // rendered TeX div it references. Now, the original string was parsed as HTML, and
+                        // the <div>s from `fontTeX._genHTML' stayed as <div>s and never lost any of their
+                        // data. This system can still mess up if the user enters a really malformed HTML
+                        // string like "<span style="color:red> $ \TeX $ </span>". Notice that the <span>'s
+                        // 'style' attribute doesn't have a closing double quote. Instead of ending after
+                        // "red", the parser continues consuming the string until the end. In a case like
+                        // that, there's no way for the script to even know that the string is malformed
+                        // until after it's been turned into HTML. By then, any temporary element that
+                        // should have been created is gone and not able to be referenced or replaced.
+
+                        var html = '',
+                            elementIds = [];
+                        for (var n = 0, j = tokens.length; n < j; n++) {
+                            if (typeof tokens[n] == 'string') {
+                                html += tokens[n];
+                            } else {
+                                // Two different random numbers are generated to make doubly sure that each elem-
+                                // ent will be unique in its ID.
+                                var rand1 = (Math.random() * Math.random() + '').replace('.', '');
+                                var rand2 = (Math.random() * Math.random() + '').replace('.', '');
+                                elementIds.push([rand1, rand2, fontTeX._genHTML(arg[i], tokens[n][0], tokens[n][1], cssDeclaration)]);
+                                html += '<span data-fontTeX-ID-1' + rand1 + ' data-fontTeX-ID-2' + rand2 + '></span>';
+                            }
+                        }
+                        // Now, `html' is a string of HTML that needs to be parsed.
+                        var div = document.createElement('div');
+                        div.innerHTML = html;
+                        for (var n = 0, j = elementIds.length; n < j; n++) {
+                            var elem = div.querySelector('[data-fontTeX-ID-1' + elementIds[n][0] + '][data-fontTeX-ID-2' + elementIds[n][1] + ']');
+                            if (!elem) continue;
+                            elem.parentNode.insertBefore(elementIds[n][2], elem);
+                            elem.parentNode.removeChild(elem);
+                        }
+                        for (var n = 0, j = div.childNodes.length; n < j; n++) {
+                            arg[i].appendChild(div.firstChild);
                         }
                     }
-                    arg[i].innerHTML = html;
                 }
             }
         },
@@ -1900,8 +2193,10 @@
                                             }
 
                                             // If `otherTok' is more than just one token, it had to have been surrounded by
-                                            // opening and closing delimiters, which TeX strips off automatically.
-                                            if (otherTok.length > 1) {
+                                            // opening and closing delimiters, which TeX strips off automatically. If it's only
+                                            // two characters though, then both must be an opening and closing tokens. In that
+                                            // case, don't strip them off because then it'll just be an empty array.
+                                            if (otherTok.length > 2) {
                                                 otherTok.shift();
                                                 otherTok.pop();
                                             }
@@ -2012,17 +2307,20 @@
                             // primitive command or a macro.
                             if (scopes.last.defs.active[token.char].proxy && scopes.last.defs.active[token.char].original.type == 'primitive') {
                                 // It's a primitive command.
-                                var queuedToks = scopes.last.defs.macros[token.char].function.call(token, {
-                                    mouth: mouth,
-                                    tokens: scopes.last.tokens,
-                                    toggles: prefixedToggles,
-                                    catOf: catOf,
-                                    scopes: scopes,
-                                    openGroups: openGroups,
-                                    contexts: contexts,
-                                    Scope: Scope,
-                                    style: style
-                                });
+                                var queuedToks = (scopes.last.defs.active[token.char].proxy ?
+                                    scopes.last.defs.active[token.char].original :
+                                    scopes.last.defs.active[token.char]).function.call(token, {
+                                        mouth: mouth,
+                                        tokens: scopes.last.tokens,
+                                        toggles: prefixedToggles,
+                                        catOf: catOf,
+                                        scopes: scopes,
+                                        openGroups: openGroups,
+                                        contexts: contexts,
+                                        Scope: Scope,
+                                        style: style
+                                    }
+                                );
                                 token.recognized = true;
                                 return Array.isArray(queuedToks) ? queuedToks : [];
                             } else {
@@ -2067,7 +2365,7 @@
                                                 mouth.loadState(activeExpandSym);
                                                 return [token];
                                             }
-                                            if (otherTok.length > 1) {
+                                            if (otherTok.length > 2) {
                                                 otherTok.shift();
                                                 otherTok.pop();
                                             }
@@ -2254,12 +2552,27 @@
                 if (style == 'display') {
                     // The next token should also be a math shift token. If it's not, the current math
                     // shift token is invalid.
-                    var next = mouth.eat();
+                    var tempMouth = new Mouth(mouth.string, mouth.queue),
+                        doBreak = false;
 
-                    if (!next || next.type != 'character' || next.cat != data.cats.math) {
-                        // The next token wasn't a math shift token. Put the token back to be reparsed and
-                        // mark the current token as invalid.
-                        if (next) mouth.revert();
+                    while (true) {
+                        var next = tempMouth.eat();
+
+                        if (!next) break;
+
+                        if (next.type == 'command' || next.type == 'character' && next.cat == data.cats.active) {
+                            var expansion = tempMouth.expand(next, tempMouth);
+                            tempMouth.queue.unshift.apply(tempMouth.queue, expansion);
+                            continue;
+                        } else if (next.type == 'character' && next.cat == data.cats.math) {
+                            doBreak = true;
+                            tempMouth.finalize();
+                            mouth.string = tempMouth.string;
+                            break;
+                        } else break;
+                    }
+
+                    if (!doBreak) {
                         mouth.queue.unshift({
                             type: 'character',
                             cat: data.cats.all,
@@ -3374,7 +3687,7 @@
             for (var i = 0, l = tokens.length; i < l; i++) {
                 if (tokens[i].type == 'atom') {
                     if (Array.isArray(tokens[i].nucleus) && tokens[i].nucleus.length == 1) {
-                        if ([0,2,3,4,5,6,'inner'].includes(tokens[i].nucleus[0].atomType)) {
+                        if ([0,2,3,4,5,6,'inner'].includes(tokens[i].nucleus[0].atomType) && !['over','under','rad'].includes(tokens[i].atomType)) {
                             if (!tokens[i].nucleus[0].superscript && !tokens[i].nucleus[0].subscript) {
                                 tokens[i].nucleus = tokens[i].nucleus[0].nucleus;
                                 i--;
@@ -3400,7 +3713,7 @@
                                 i--;
                                 continue;
                             }
-                        } else if (tokens[i].nucleus[0].atomType == 1) {
+                        } else if (tokens[i].nucleus[0].atomType == 1 && !['over','under','rad'].includes(tokens[i].atomType)) {
                             if (!tokens[i].nucleus[0].superscript && !tokens[i].nucleus[0].subscript) {
                                 tokens[i].nucleus = tokens[i].nucleus[0].nucleus;
                                 i--;
@@ -3411,6 +3724,10 @@
                                 tokens[i].nucleus = tokens[i].nucleus[0].nucleus;
                                 i--;
                                 continue;
+                            }
+                        } else if (['over','under','rad'].includes(tokens[i].atomType)) {
+                            if (!tokens[i].nucleus[0].superscript && !tokens[i].nucleus[0].subscript) {
+                                tokens[i].nucleus = tokens[i].nucleus[0].nucleus;
                             }
                         }
                     }
@@ -3524,7 +3841,7 @@
     // This function takes a list of tokens from `fontTeX._tokenize' and creates an
     // element with the TeX parsed. This is the top level function used to create a
     // complete fragment of elements.
-    fontTeX._genHTML = function genHTML(container, tokens, contStyle, family) {
+    fontTeX._genHTML = function genHTML(container, tokens, contStyle, cssDeclaration) {
         // The full set of instructions as to how TeX creates a horizontal box from a list
         // of tokens starts on page 441 (all of Appendix G) of the TeXbook. This function
         // follows a similar set of instructions. Instead of horizontal boxes, actual HTML
@@ -3544,8 +3861,16 @@
             div.style.display = 'inline-block';
         }
 
+        // The font-size of the container is gotten in px for future reference.
+        var fontSize = parseFloat(cssDeclaration.fontSize);
+
+        // The font-family is also saved.
+        var family = cssDeclaration.fontFamily;
+
         // Do all the parsing now.
         newBox(tokens, contStyle, false, 'nm', div);
+
+        if (div.firstElementChild.empty && div.children.length == 1) div = document.createTextNode('');
 
 
         // This function may be used inside `newBox'. It goes through an element, making
@@ -3579,7 +3904,9 @@
                 empty.renderedHeight = 0;
                 parent.renderedHeight = parent.renderedHeight || 0;
                 parent.renderedDepth = parent.renderedDepth || 0;
+                parent.baseline = fontTeX.fontDimen.baselineHeightOf(family);
                 parent.appendChild(empty);
+                empty.empty = true;
                 return;
             }
 
@@ -3634,6 +3961,10 @@
             // Before that though, the last atom needs to be checked. If it's a Bin atom, it
             // has to be turned into an Ord atom.
             if (atoms.length && atoms[atoms.length - 1].atomType == 2) atoms[atoms.length - 1].atomType = 0;
+
+            // If no items were added to `items', then it means the whole box will have nothing
+            // in it.
+            if (!items.length) flex.empty = true;
 
             for (var i = 0, l = items.length; i < l; i++) {
                 var arr = parse2(1, i, l);
@@ -3790,6 +4121,7 @@
                             // A fraction's bar is always supposed to be centered on the line, even if the num-
                             // erator is five times as tall as the denominator. The "center of the line" is as-
                             // sumed to be half the ex height of the font (the same as vertical-align: middle).
+                            var axisHeight = fontTeX.fontDimen.heightOf('x', family) / 2 + fontTeX.fontDimen.baselineHeightOf(family);
 
                             var numer = document.createElement('div'),
                                 denom = document.createElement('div');
@@ -3808,10 +4140,20 @@
                             // down. In \displaystyle and \scripscriptstyle, the numerator and denominator re-
                             // main the same size, so no scaling is needed. The other styles though get their
                             // fraction parts scaled down, so it would only make sense that the bar gets scaled
-                            // down too (since em units are relative to the font). Absolute units like pts stay
-                            // the same.
-                            var barWidthDimen = token.barWidth == 'from font' ? new DimenReg(0, fontTeX.fontDimen.visibleWidthOf('|', family) * 65536) : token.barWidth,
-                                unscaledBarWidth = barWidthDimen.sp.value ?
+                            // down too (since em units are relative to the font). Also, absolute units like px
+                            // are also converted to em based on the font size of `container'. In other areas
+                            // of the script, elements are measured using .getBoundingClientRect() and their
+                            // heights are stored in em units so that the TeX can scale up if necessary instead
+                            // of being stuck in px units. The problem with that is that absolute units in the
+                            // bar's width aren't scalable. After being converted to em, the display will still
+                            // look exactly the same. If the font-size of the container is changed, the bar's
+                            // width will also scale up temporarily. After the auto updater sees that there's
+                            // been a style change though, the whole thing will be re-rendered and the bar
+                            // width will go back to its absolute units.
+                            var barWidthDimen = token.barWidth == 'from font' ? new DimenReg(0, fontTeX.fontDimen.visibleWidthOf('|', family) * 65536) : new DimenReg(token.barWidth);
+                            barWidthDimen.em.value += barWidthDimen.sp.value / 65536 / 6 * 8 / fontSize * 65536;
+                            barWidthDimen.sp.value = 0;
+                            var unscaledBarWidth = barWidthDimen.sp.value ?
                                     barWidthDimen.em.value ? 'calc(' + barWidthDimen.em.value / 65536 + 'em + ' + barWidthDimen.sp.value / 65536 + 'pt)' :
                                     barWidthDimen.sp.value / 65536 + 'pt' : barWidthDimen.em.value / 65536 + 'em';
                             if (style == 'text' || style == 'script') barWidthDimen.em.value *= .707106781;
@@ -3836,30 +4178,30 @@
                             container.removeChild(emRef);
                             container.appendChild(numer);
                             var numerDimens = numer.getBoundingClientRect(),
-                                numerWidth = numer.getBoundingClientRect().width;
-                            numer.renderedHeight = numerDimens.height / emPx * (style == 'text' || style == 'script' ? .707106781 : 1);
+                                numerWidth = numer.getBoundingClientRect().width,
+                                numerScaledHeight = numerDimens.height / emPx * (style == 'text' || style == 'script' ? .707106781 : 1);
                             container.removeChild(numer);
                             container.appendChild(denom);
                             var denomDimens = denom.getBoundingClientRect(),
                                 denomHeight = denomDimens.height / emPx,
-                                denomWidth = denomDimens.width;
-                            denom.renderedHeight = denomHeight * (style == 'text' || style == 'script' ? .707106781 : 1);
+                                denomWidth = denomDimens.width,
+                                denomScaledHeight = denomHeight * (style == 'text' || style == 'script' ? .707106781 : 1);
                             container.removeChild(denom);
 
                             // Measurements have been gotten. Now add some style for the numerator and denomin-
                             // ator.
                             if (style == 'text' || style == 'script') {
                                 numer.style.fontSize = denom.style.fontSize = '.707106781em';
-                                numer.style.paddingTop = 'calc(.707106781em + ' + unscaledBarWidth + ' / 2)';
-                                numer.style.top = 'calc(-.707106781em - ' + unscaledBarWidth + ' / 2)';
-                                denom.style.top = 'calc(' + (denomHeight - .707106781) + 'em + ' + unscaledBarWidth + '/ 2 - ' + denomHeight + 'em)';
-                                token.div.style.paddingBottom = 'calc(' + (denom.renderedHeight - .5) + 'em + ' + barWidth + ' / 2)'
+                                numer.style.paddingTop = 'calc(' + axisHeight / .707106781 + 'em + ' + unscaledBarWidth + ' / 2)';
+                                numer.style.top = 'calc(' + -axisHeight / .707106781 + 'em - ' + unscaledBarWidth + ' / 2)';
+                                denom.style.top = 'calc(' + (denomHeight - axisHeight / .707106781) + 'em + ' + unscaledBarWidth + '/ 2 - ' + denomHeight + 'em)';
+                                token.div.style.paddingBottom = 'calc(' + (denomScaledHeight - axisHeight) + 'em + ' + barWidth + ' / 2)'
                             } else {
                                 numer.style.fontSize = denom.style.fontSize = '';
-                                numer.style.paddingTop = 'calc(.5em + ' + barWidth + ' / 2)';
-                                numer.style.top = 'calc(-.5em - ' + barWidth + ' / 2)';
-                                denom.style.top = 'calc(' + (denomHeight - .5) + 'em + ' + barWidth + '/ 2 - ' + denomHeight + 'em)';
-                                token.div.style.paddingBottom = 'calc(' + (denomHeight - .5) + 'em + ' + barWidth + ' / 2)'
+                                numer.style.paddingTop = 'calc(' + axisHeight + 'em + ' + barWidth + ' / 2)';
+                                numer.style.top = 'calc(' + -axisHeight + 'em - ' + barWidth + ' / 2)';
+                                denom.style.top = 'calc(' + (denomHeight - axisHeight) + 'em + ' + barWidth + '/ 2 - ' + denomHeight + 'em)';
+                                token.div.style.paddingBottom = 'calc(' + (denomHeight - axisHeight) + 'em + ' + barWidth + ' / 2)'
                             }
 
                             // If the denominator is big enough, it may affect the height of the overall frac-
@@ -3890,11 +4232,11 @@
                             barCont.style.display = 'inline-block';
                             barCont.style.position = 'relative';
                             barCont.style.verticalAlign = 'text-bottom';
-                            barCont.style.top = '-.5em';
-                            barCont.style.width = '.1em';
+                            barCont.style.top = -axisHeight + 'em';
+                            barCont.style.width = '.05em';
                             barCont.style.height = 0;
                             bar.style.borderTop = barWidth + ' solid currentColor';
-                            bar.style.padding = '0 .1em';
+                            bar.style.padding = '0 .05em';
                             bar.style.position = 'relative';
                             bar.style.top = 'calc(' + barWidth + ' / -2)';
                             bar.style.display = 'inline-block';
@@ -4021,7 +4363,7 @@
                             // offset anything that comes after it.
                             var widthOffset = document.createElement('div');
                             widthOffset.style.display = 'inline-block';
-                            widthOffset.style.width = '.1em';
+                            widthOffset.style.width = '.05em';
                             token.div.appendChild(widthOffset);
 
 
@@ -4321,10 +4663,20 @@
                             renderElem(rightDelim, token.delims[1], false);
 
 
+                            // If the fraction is being rendered in a different font size than normal, the
+                            // height and depth need to change accordingly.
+                            var multiplier = ({
+                                display:      {display:           1, text:           1, script: 0.707106781, scriptscript:         .5},
+                                text:         {display:           1, text:           1, script: 0.707106781, scriptscript:         .5},
+                                script:       {display: 1.414213562, text: 1.414213562, script:           1, scriptscript: .707106781},
+                                scriptscript: {display:           2, text:           2, script: 1.414213562, scriptscript:          1}
+                            })[flex.displayedStyle][style];
+
+
                             // The whole fraction has been created now. All that's left is to calculate a new
                             // height and depth. Since the fraction is centered
-                            token.div.renderedDepth = denom.renderedHeight + fontTeX.fontDimen.baselineHeightOf(family) - .5 + finalBarWidth / 2;
-                            token.div.renderedHeight = numer.renderedHeight + denom.renderedHeight + finalBarWidth - token.div.renderedDepth;
+                            token.div.renderedDepth = denomScaledHeight - fontTeX.fontDimen.heightOf('x', family) / 2 + finalBarWidth / 2 * multiplier;
+                            token.div.renderedHeight = numerScaledHeight + fontTeX.fontDimen.heightOf('x', family) / 2 + finalBarWidth / 2 * multiplier;
 
                             // Since a fraction doesn't really count as a character, `lastChar' is set to just
                             // a space (a character without an italic correction).
@@ -4342,6 +4694,28 @@
                     case 10:
                         // This is where all atoms are rendered fully. The inter-atom spacing is added la-
                         // ter, but this is where the atom itself is turned into HTML.
+
+                        // Over, Under, and Rad atoms are handled a little specially. If there's an Over
+                        // atom with a superscript, that superscript should be placed outside the overline,
+                        // not inside it. To get that to happen, the Over's nucleus has to be parsed first
+                        // as its own atom, then the overline goes over it, then the superscript on the
+                        // Over atom is added. To get that to happen, any Over, Under, or Rad atoms with
+                        // a sub/superscript is turned into an Ord atom first with its nucleus as the orig-
+                        // inal atom. The nucleus atom won't have any sub/superscripts. Instead, those will
+                        // be placed on the outside Ord atom. This all happens before anything is altered
+                        // on the original token.
+                        if (['over','under','rad'].includes(token.atomType) && (token.subscript || token.superscript)) {
+                            token = {
+                                type: 'atom',
+                                atomType: 0,
+                                nucleus: [token],
+                                superscript: token.superscript,
+                                subscript: token.subscript,
+                                invalid: token.invalid
+                            };
+                            token.nucleus[0].subscript = token.nucleus[0].superscript = null;
+                        }
+
                         items.push(token);
                         atoms.push(token);
                         token.style = style;
@@ -4424,10 +4798,16 @@
                                 var fontStyle = font == 'nm' ? token.atomType == 7 ? 'it' : 'nm' : font;
                                 token.div.renderedHeight = fontTeX.fontDimen.heightOf(token.nucleus.char, family, fontStyle) * multiplier;
                                 token.div.renderedDepth = fontTeX.fontDimen.trueDepthOf(token.nucleus.char, family, fontStyle) * multiplier;
+                                token.div.baseline = fontTeX.fontDimen.baselineHeightOf(family) * multiplier;
                             }
                             lastChar = token.nucleus.char;
                         } else if (Array.isArray(token.nucleus)) {
                             lastChar = newBox(token.nucleus, style, cramped || token.atomType == 'over' || token.atomType == 'rad', font, token.div) || lastChar;
+                            token.div.renderedHeight *= multiplier;
+                            token.div.renderedDepth *= multiplier;
+                            if (token.div.firstElementChild.empty && !token.superscript && !token.subscript && !token.delimited && !['rad', 'acc', 'over', 'under'].includes(token.atomType)) {
+                                token.div.empty = true;
+                            }
                         }
 
                         // Now a font-size needs to be set on the element to show differences between
@@ -4441,72 +4821,98 @@
                         // scripts. They are handled in the else if block following this if block.
                         if ((token.superscript || token.subscript) && (token.atomType != 1 || !token.limits)) {
                             if (token.subscript && !token.superscript) {
-                                var sub = document.createElement('div');
+                                // If the atom has a subscript but no superscript, the subscript is rendered a lit-
+                                // tle higher than normal.
+
+                                // `heightOffset' is used to offset the vertical spacing of any lines adjacent to
+                                // the equation.
+                                var sub = document.createElement('div'),
+                                    heightOffset = document.createElement('div');
                                 sub.style.display = 'inline-block';
-                                sub.style.verticalAlign = 'text-top';
-                                sub.style.marginTop = '.4em';
-                                newBox(token.subscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped || token.atomType == 'over' || token.atomType == 'rad', font, sub);
-                                // The height of the subscript if gotten by taking the boundingClientRect of the
-                                // box. Visible height doesn't really matter here because it's not being aligned
-                                // according to its visible height but by its actual physical height. Once the
-                                // height is determined, it's counted as part of the depth of the atom. The font
-                                // size is first set to 10px to set an artificial em value. After getting the
-                                // height and dividing by 10, it'll be a ratio of its height to its em value.
+                                sub.style.verticalAlign = 'text-bottom';
+                                sub.style.position = 'relative';
+                                heightOffset.style.verticalAlign = 'text-top';
+                                heightOffset.innerText = '\u00a0';
+                                heightOffset.style.display = 'inline-block';
+                                heightOffset.style.width = 0;
+                                newBox(token.subscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', true, font, sub);
+
                                 sub.style.fontSize = '50px';
                                 container.appendChild(sub);
                                 var height = sub.getBoundingClientRect().height / 50;
                                 container.removeChild(sub);
+
                                 // If the style isn't already at scriptscript, then it'll be rendered at a smaller
-                                // font.
-                                if (style != 'scriptscript') {
+                                // font. There's a lot of numbers below with adding and subtracting and stuff, but
+                                // basically, the subscript is moved up or down so that its baseline matches the
+                                // baseline of the nucleus (since vertical-align: text-bottom moves it depending on
+                                // the font size). Once the baselines are lined up, the script is moved down so
+                                // that either it's top is at 4/5 of the parent's ex height, or its bottom is 1/5
+                                // below the nucleus's bottom, which ever is lower. That means the subscript will
+                                // always be at least 4/5 below the ex height, but will also be moved down if the
+                                // nucleus is extra tall. The 4/5 number was taken directly from TeX. TeX gets the
+                                // 1/5 from fonts' parameters and can vary depending on the font. 1/5 just seems to
+                                // be around the right area to fit most fonts.
+                                if (style == 'scriptscript') {
+                                    sub.style.fontSize = '';
+                                    sub.style.top = Math.max(sub.baseline, sub.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier + .2, sub.renderedHeight - fontTeX.fontDimen.heightOf('x', family)) - height + 'em';
+                                    heightOffset.style.paddingBottom = Math.max(sub.baseline, sub.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier + .2, sub.renderedHeight - fontTeX.fontDimen.heightOf('x', family)) - height + 'em';
+                                    token.div.renderedDepth = Math.max(token.div.renderedDepth, (sub.renderedDepth + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier + .2, sub.renderedHeight - fontTeX.fontDimen.heightOf('x', family))) * multiplier);
+                                } else {
                                     sub.style.fontSize = '.707106781em';
-                                    height *= .707106781;
-                                    sub.style.marginTop = '.565685425em';
-                                } else sub.style.fontSize = '';
-                                token.div.renderedDepth = Math.max(token.div.renderedDepth, height - .6);
+                                    sub.style.top = Math.max(sub.baseline, sub.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) / .707106781 + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier / .707106781 + .2, sub.renderedHeight - fontTeX.fontDimen.heightOf('x', family)) - height + 'em';
+                                    heightOffset.style.paddingBottom = (Math.max(sub.baseline, sub.renderedDepth) * .707106781 - fontTeX.fontDimen.baselineHeightOf(family) + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier / .707106781 + .2, sub.renderedHeight - fontTeX.fontDimen.heightOf('x', family)) * .707106781) + 'em';
+                                    token.div.renderedDepth = Math.max(token.div.renderedDepth, (sub.renderedDepth * .707106781 + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier / .707106781 + .2, sub.renderedHeight - fontTeX.fontDimen.heightOf('x', family)) * .707106781) * multiplier);
+                                }
+                                // If the subscript is taller than the nucleus (it can happen if there's like a
+                                // fraction or a table in the script but not in the nucleus of if the script
+                                // itself also has scripts), it can unintentionally offset the height of the line.
+                                // To prevent that, its height is set to 0.
+                                sub.style.height = 0;
                                 token.div.appendChild(sub);
+                                token.div.insertBefore(heightOffset, sub);
                             } else if (token.superscript && !token.subscript) {
-                                // Superscripts are made the same way as subscripts. One difference though is that
-                                // they are affected by the `cramped' argument. If `cramped' is true, the super-
-                                // script is placed slightly lower than normal. It's used for when atoms are place
-                                // in a denominator of a fraction or inside an \underlined atom.
+                                // Superscripts are rendered much the same way as subscripts. Instead of getting a
+                                // `heightOffset' element, they get a padding-top that displaces elements around it
+                                // instead.
                                 var sup = document.createElement('div');
+                                newBox(token.superscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped, font, sup);
                                 sup.style.display = 'inline-block';
                                 sup.style.verticalAlign = 'text-bottom';
-                                sup.style.paddingTop = cramped || token.atomType == 'over' || token.atomType == 'rad' ? '.3em' : '.35em';
                                 sup.style.position = 'relative';
-                                sup.style.top = cramped || token.atomType == 'over' || token.atomType == 'rad' ? '-.3em' : '-.35em';
-                                newBox(token.superscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped || token.atomType == 'over' || token.atomType == 'rad', font, sup);
-                                sup.style.fontSize = '50px';
-                                container.appendChild(sup);
-                                var height = sup.getBoundingClientRect().height / 50;
-                                container.removeChild(sup);
-                                if (style != 'scriptscript') {
+
+                                // The math here is almost the same as with subscripts. The script is moved to the
+                                // baseline first. Then it's shift up so that either the bottom is at 7/10 (3/5
+                                // when in "cramped" mode) of the ex height, or the top is 1/5 (1/10 in "cramped"
+                                // mode) above the height of the nucleus. It's always at least 3/5 above the ex
+                                // height but can move up with the nucleus if the nucleus is particularly tall.
+                                // "Cramped" mode is when the `cramped' argument is true and it basically just sig-
+                                // nals that exponents need to be rendered lower.
+                                if (style == 'scriptscript') {
+                                    sup.style.top = Math.max(sup.baseline, sup.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) - Math.max(token.div.renderedHeight / multiplier + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family)) + 'em';
+                                    sup.style.paddingTop = -Math.max(sup.baseline, sup.renderedDepth) + fontTeX.fontDimen.baselineHeightOf(family) + Math.max(token.div.renderedHeight / multiplier + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family)) + 'em';
+                                    token.div.renderedHeight = Math.max(token.div.renderedHeight, (sup.renderedHeight + Math.max(token.div.renderedHeight / multiplier + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family))) * multiplier);
+                                } else {
                                     sup.style.fontSize = '.707106781em';
-                                    sup.style.paddingTop = cramped || token.atomType == 'over' || token.atomType == 'rad' ? '.424264069em' : '.494974747em';
-                                    sup.style.top = cramped || token.atomType == 'over' || token.atomType == 'rad' ? '-.424264069em' : '-.494974747em';
-                                    height *= .707106781;
-                                } else sup.style.fontSize = '';
-                                token.div.renderedHeight = Math.max(token.div.renderedHeight, height + (cramped || token.atomType == 'over' || token.atomType == 'rad' ? .3 : .35));
+                                    sup.style.top = Math.max(sup.baseline, sup.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) / .707106781 - Math.max(token.div.renderedHeight / multiplier / .707106781 + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family)) + 'em';
+                                    sup.style.paddingTop = -Math.max(sup.baseline, sup.renderedDepth) + fontTeX.fontDimen.baselineHeightOf(family) / .707106781 + Math.max(token.div.renderedHeight / multiplier / .707106781 + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family)) + 'em';
+                                    token.div.renderedHeight = Math.max(token.div.renderedHeight, (sup.renderedHeight + Math.max(token.div.renderedHeight / multiplier / .707106781 + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family))) * .707106781 * multiplier);
+                                }
                                 token.div.appendChild(sup);
                             } else if (token.subscript && token.superscript) {
-                                // If there's both a superscript and a subscript, they have to be positioned right
-                                // on top of each other. That actually turns out being pretty easy. Both of the
-                                // scripts are created like normal. Then, before placing them inside their parent,
-                                // their widths are measured. The script with the thinner width is placed first and
-                                // its width CSS property is set to 0. Then the other script is placed like normal.
-                                // Since the first, thinner script has no width (but still a height to offset any
-                                // lines around it), the second script still appears right next to the nucleus. The
-                                // second script's width is unchanged, so any atoms after it are still offset by
-                                // it. If both scripts have the same width, the subscript is chosen to act as the
-                                // longer one (even though it really wouldn't matter if it was the other way a-
-                                // round).
+                                // If both a sub/superscript are found, the thinner is placed first with width: 0.
+                                // Then the thicker one is placed with its normal width.
 
                                 // First create the subscript without any styles applied yet. All the dimensions
                                 // are also gotten from here.
-                                var sub = document.createElement('div');
+                                var sub = document.createElement('div'),
+                                    heightOffset = document.createElement('div');
                                 sub.style.display = 'inline-block';
-                                newBox(token.subscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped || token.atomType == 'over' || token.atomType == 'rad', font, sub);
+                                heightOffset.style.verticalAlign = 'text-top';
+                                heightOffset.innerText = '\u00a0';
+                                heightOffset.style.display = 'inline-block';
+                                heightOffset.style.width = 0;
+                                newBox(token.subscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', true, font, sub);
                                 sub.style.fontSize = '50px';
                                 container.appendChild(sub);
                                 var subDimens = sub.getBoundingClientRect();
@@ -4515,41 +4921,48 @@
                                 // Do the same for the superscript.
                                 var sup = document.createElement('div');
                                 sup.style.display = 'inline-block';
-                                newBox(token.superscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped || token.atomType == 'over' || token.atomType == 'rad', font, sup);
+                                newBox(token.superscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped, font, sup);
                                 sup.style.fontSize = '50px';
                                 container.appendChild(sup);
                                 var supDimens = sup.getBoundingClientRect();
                                 container.removeChild(sup);
 
-                                // Now save some variables for differentiating between the thinner and the thicker
-                                // one.
+                                // Assign variables to keep track of which of the scripts is thinner.
                                 var thinner = supDimens.width > subDimens.width ? sub : sup,
                                     thicker = supDimens.width > subDimens.width ? sup : sub,
                                     height = supDimens.height / 50,
                                     depth = subDimens.height / 50;
 
                                 // Now, all the styles are added like normal.
-                                sub.style.verticalAlign = 'text-top';
-                                sub.style.marginTop = '.5em';
+                                sub.style.verticalAlign = 'text-bottom';
                                 sup.style.verticalAlign = 'text-bottom';
-                                sup.style.paddingTop = cramped || token.atomType == 'over' || token.atomType == 'rad' ? '.4em' : '.5em';
-                                sup.style.position = 'relative';
-                                sup.style.top = cramped || token.atomType == 'over' || token.atomType == 'rad' ? '-.4em' : '-.5em';
-                                if (style != 'scriptscript') {
+                                sup.style.position = sub.style.position = 'relative';
+                                if (style == 'scriptscript') {
+                                    sub.style.fontSize = sup.style.fontSize = '';
+
+                                    sup.style.top = Math.max(sup.baseline, sup.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) - Math.max(token.div.renderedHeight / multiplier + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family)) + 'em';
+                                    sup.style.paddingTop = -Math.max(sup.baseline, sup.renderedDepth) + fontTeX.fontDimen.baselineHeightOf(family) + Math.max(token.div.renderedHeight / multiplier + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family)) + 'em';
+                                    token.div.renderedHeight = Math.max(token.div.renderedHeight, (sup.renderedHeight + Math.max(token.div.renderedHeight / multiplier + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family))) * multiplier);
+
+                                    sub.style.top = Math.max(sub.baseline, sub.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier + .2, sub.renderedHeight - .8 * fontTeX.fontDimen.heightOf('x', family)) - depth + 'em';
+                                    heightOffset.style.paddingBottom = Math.max(sub.baseline, sub.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier + .2, sub.renderedHeight - .8 * fontTeX.fontDimen.heightOf('x', family)) - height + 'em';
+                                    token.div.renderedDepth = Math.max(token.div.renderedDepth, (sub.renderedDepth + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier + .2, sub.renderedHeight - .8 * fontTeX.fontDimen.heightOf('x', family))) * multiplier);
+                                } else {
                                     sub.style.fontSize = sup.style.fontSize = '.707106781em';
-                                    height *= .707106781;
-                                    depth *= .707106781;
-                                    sub.style.marginTop = '.707106781em';
-                                    sup.style.paddingTop = cramped || token.atomType == 'over' || token.atomType == 'rad' ? '.565685425em' : '.707106781em';
-                                    sup.style.top = cramped || token.atomType == 'over' || token.atomType == 'rad' ? '-.565685425em' : '-.707106781em';
-                                } else sub.style.fontSize = sup.style.fontSize = '';
 
-                                // Height and depth are still calculated here.
-                                token.div.renderedDepth = Math.max(token.div.renderedDepth, depth + .5);
-                                token.div.renderedHeight = Math.max(token.div.renderedHeight, height + (cramped || token.atomType == 'over' || token.atomType == 'rad' ? .4 : .5));
+                                    sup.style.top = Math.max(sup.baseline, sup.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) / .707106781 - Math.max(token.div.renderedHeight / multiplier / .707106781 + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family)) + 'em';
+                                    sup.style.paddingTop = -Math.max(sup.baseline, sup.renderedDepth) + fontTeX.fontDimen.baselineHeightOf(family) / .707106781 + Math.max(token.div.renderedHeight / multiplier / .707106781 + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family)) + 'em';
+                                    token.div.renderedHeight = Math.max(token.div.renderedHeight, (sup.renderedHeight + Math.max(token.div.renderedHeight / multiplier / .707106781 + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family))) * .707106781 * multiplier);
 
+                                    sub.style.top = Math.max(sub.baseline, sub.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) / .707106781 + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier / .707106781 + .2, sub.renderedHeight - .8 * fontTeX.fontDimen.heightOf('x', family)) - depth + 'em';
+                                    heightOffset.style.paddingBottom = (Math.max(sub.baseline, sub.renderedDepth) * .707106781 - fontTeX.fontDimen.baselineHeightOf(family) + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier / .707106781 + .2, sub.renderedHeight - .8 * fontTeX.fontDimen.heightOf('x', family)) * .707106781) + 'em';
+                                    token.div.renderedDepth = Math.max(token.div.renderedDepth, (sub.renderedDepth * .707106781 + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier / .707106781 + .2, sub.renderedHeight - .8 * fontTeX.fontDimen.heightOf('x', family)) * .707106781) * multiplier);
+                                }
+
+                                sub.style.height = 0;
                                 thinner.style.width = 0;
 
+                                token.div.appendChild(heightOffset);
                                 token.div.appendChild(thinner);
                                 token.div.appendChild(thicker);
                             }
@@ -4574,11 +4987,16 @@
 
                                 token.div.renderedDepth = Math.max(token.div.renderedDepth, 0)
 
-                                var sub = document.createElement('div');
+                                var sub = document.createElement('div'),
+                                    heightOffset = document.createElement('div');
                                 sub.style.display = 'inline-block';
                                 sub.style.verticalAlign = 'text-bottom';
                                 sub.style.position = 'relative';
-                                newBox(token.subscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped || token.atomType == 'over' || token.atomType == 'rad', font, sub);
+                                heightOffset.innerText = '\u00A0';
+                                heightOffset.style.verticalAlign = 'text-top';
+                                heightOffset.style.display = 'inline-block';
+                                heightOffset.style.width = 0;
+                                newBox(token.subscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', true, font, sub);
 
                                 sub.style.fontSize = style == 'scriptscript' ? token.div.style.fontSize : 'calc(' + token.div.style.fontSize + ' * .707106781)';
                                 container.appendChild(sub);
@@ -4598,12 +5016,12 @@
                                     // "1").
                                     sub.style.top = -fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth + 'em';
                                     sub.style.paddingBottom = -height + fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth + 'em';
-                                    token.div.style.paddingBottom = height - fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedDepth + 'em';
+                                    heightOffset.style.paddingBottom = height - Math.max(fontTeX.fontDimen.baselineHeightOf(family), token.div.renderedDepth) + token.div.renderedDepth + 'em';
                                 } else {
                                     sub.style.fontSize = '.707106781em';
                                     sub.style.top = (fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth) / -.707106781 + 'em';
                                     sub.style.paddingBottom = -height - (fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth) / -.707106781 + 'em';
-                                    token.div.style.paddingBottom = height * .707106781 - fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedDepth + 'em';
+                                    heightOffset.style.paddingBottom = height * .707106781 - fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedDepth + 'em';
                                 }
 
                                 sub.style.height = 0;
@@ -4657,25 +5075,28 @@
                                     nucleusPar.appendChild(thinContainer);
                                     token.div.insertBefore(nucleusPar, sub);
                                 }
+                                token.div.insertBefore(heightOffset, token.div.firstElementChild);
 
                                 // Since the subscript in its entirety is being added on right under the atom, all
                                 // of its height and depth are adding on to the depth of the atom.
-                                token.div.renderedDepth += (height - fontTeX.fontDimen.baselineHeightOf(family) + sub.renderedDepth) * (style == 'scriptscript' ? 1 : .707106781);
+                                token.div.renderedDepth += height * (style == 'scriptscript' ? 1 : .707106781) * multiplier;
                             } else if (token.superscript && !token.subscript) {
                                 // This is the superscript version of the above.
                                 var sup = document.createElement('div');
                                 sup.style.display = 'inline-block';
                                 sup.style.verticalAlign = 'text-bottom';
-                                newBox(token.superscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped || token.atomType == 'over' || token.atomType == 'rad', font, sup);
+                                newBox(token.superscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped, font, sup);
 
                                 sup.style.fontSize = style == 'scriptscript' ? token.div.style.fontSize : 'calc(' + token.div.style.fontSize + ' * .707106781)';
                                 container.appendChild(sup);
                                 var width = sup.getBoundingClientRect().width;
+                                sup.style.fontSize = '50px';
+                                var height = sup.getBoundingClientRect().height / 50;
                                 container.removeChild(sup);
 
                                 if (style == 'scriptscript') {
                                     sup.style.fontSize = '';
-                                    sup.style.marginBottom = fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedHeight + 'em';
+                                    sup.style.marginBottom = token.div.renderedHeight + token.div.renderedDepth + .1 + 'em';
                                 } else {
                                     sup.style.fontSize = '.707106781em';
                                     sup.style.marginBottom = 'calc(' + (fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedHeight) + 'em / .707106781)';
@@ -4730,7 +5151,7 @@
                                     token.div.insertBefore(nucleusPar, sup);
                                 }
 
-                                token.div.renderedHeight += (Math.max(sup.renderedDepth, fontTeX.fontDimen.baselineHeightOf(family)) + sup.renderedHeight) * (style == 'scriptscript' ? 1 : .707106781);
+                                token.div.renderedHeight += height * (style == 'scriptscript' ? 1 : .707106781) * multiplier;
                             } else if (token.superscript && token.subscript) {
                                 // Both a superscript and subscript are rendered the same way they are separately.
                                 // The only difference is that three things' widths are compared instead of just
@@ -4742,37 +5163,45 @@
                                 sub.style.display = 'inline-block';
                                 sub.style.verticalAlign = 'text-bottom';
                                 sub.style.position = 'relative';
-                                newBox(token.subscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped || token.atomType == 'over' || token.atomType == 'rad', font, sub);
+                                newBox(token.subscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', true, font, sub);
 
                                 sub.style.fontSize = style == 'scriptscript' ? token.div.style.fontSize : 'calc(' + token.div.style.fontSize + ' * .707106781)';
                                 container.appendChild(sub);
                                 var subWidth = sub.getBoundingClientRect().width;
                                 sub.style.fontSize = '50px';
-                                var height = sub.getBoundingClientRect().height / 50;
+                                var subHeight = sub.getBoundingClientRect().height / 50;
                                 container.removeChild(sub);
 
                                 var sup = document.createElement('div');
                                 sup.style.display = 'inline-block';
                                 sup.style.verticalAlign = 'text-bottom';
                                 sup.style.position = 'relative';
-                                newBox(token.superscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped || token.atomType == 'over' || token.atomType == 'rad', font, sup);
+                                newBox(token.superscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped, font, sup);
 
                                 sup.style.fontSize = style == 'scriptscript' ? token.div.style.fontSize : 'calc(' + token.div.style.fontSize + ' * .707106781)';
                                 container.appendChild(sup);
                                 var supWidth = sup.getBoundingClientRect().width;
+                                sup.style.fontSize = '50px';
+                                var supHeight = sup.getBoundingClientRect().height / 50;
                                 container.removeChild(sup);
+
+                                var heightOffset = document.createElement('div');
+                                heightOffset.innerText = '\u00A0';
+                                heightOffset.style.verticalAlign = 'text-top';
+                                heightOffset.style.display = 'inline-block';
+                                heightOffset.style.width = 0;
 
                                 if (style == 'scriptscript') {
                                     sub.style.fontSize = sup.style.fontSize = '';
                                     sub.style.top = -fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth + 'em';
-                                    sub.style.paddingBottom = -height + fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth + 'em';
-                                    token.div.style.paddingBottom = height - fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedDepth + 'em';
+                                    sub.style.paddingBottom = -subHeight + fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth + 'em';
+                                    heightOffset.style.paddingBottom = subHeight - fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedDepth + 'em';
                                     sup.style.marginBottom = fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedHeight + 'em';
                                 } else {
                                     sub.style.fontSize = sup.style.fontSize = '.707106781em';
                                     sub.style.top = (fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth) / -.707106781 + 'em';
-                                    sub.style.paddingBottom = -height - (fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth) / -.707106781 + 'em';
-                                    token.div.style.paddingBottom = height * .707106781 - fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedDepth + 'em';
+                                    sub.style.paddingBottom = -subHeight - (fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth) / -.707106781 + 'em';
+                                    heightOffset.style.paddingBottom = subHeight * .707106781 - fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedDepth + 'em';
                                     sup.style.marginBottom = (fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedHeight) / .707106781 + 'em';
                                 }
                                 sub.style.height = 0;
@@ -4954,8 +5383,10 @@
                                     token.div.insertBefore(nucleusPar, sub);
                                 }
 
-                                token.div.renderedHeight += (Math.max(sup.renderedDepth, fontTeX.fontDimen.baselineHeightOf(family)) + sup.renderedHeight) * (style == 'scriptscript' ? 1 : .707106781);
-                                token.div.renderedDepth += (height - fontTeX.fontDimen.baselineHeightOf(family) + sub.renderedDepth) * .707106781;
+                                token.div.insertBefore(heightOffset, token.div.firstElementChild);
+
+                                token.div.renderedHeight += supHeight * (style == 'scriptscript' ? 1 : .707106781) * multiplier;
+                                token.div.renderedDepth += subHeight * (style == 'scriptscript' ? 1 : .707106781) * multiplier;
                             }
                         }
 
@@ -5312,6 +5743,8 @@
                                 // is like a simplified version of how fractions are rendered. Look through case: 8
                                 // for more on how they're made.
 
+                                // If an \overline is placed over an empty atom,
+
                                 var overline = document.createElement('div'),
                                     fullContainer = document.createElement('div'),
                                     widthContainer = document.createElement('div'),
@@ -5321,8 +5754,9 @@
                                 fullContainer.style.display = 'inline-block';
                                 fullContainer.style.width = fullContainer.style.height = 0;
                                 fullContainer.style.position = 'relative';
-                                fullContainer.style.top = -fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedHeight - fontTeX.fontDimen.visibleWidthOf('|', family) - .12 + 'em';
+                                fullContainer.style.top = -fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedHeight / multiplier - fontTeX.fontDimen.visibleWidthOf('|', family) - .12 + 'em';
                                 fullContainer.style.verticalAlign = 'text-bottom';
+                                fullContainer.style.pointerEvents = 'none';
                                 widthContainer.style.display = 'inline-block';
                                 widthContainer.style.webkitUserSelect =
                                     widthContainer.style.mozUserSelect =
@@ -5334,15 +5768,16 @@
                                 overline.style.borderTop = fontTeX.fontDimen.visibleWidthOf('|', family) + 'em solid currentColor';
                                 widthContainer.appendChild(overline);
                                 clone.style.visibility = 'hidden';
+                                clone.style.fontSize = '';
                                 widthContainer.appendChild(clone);
                                 fullContainer.appendChild(widthContainer);
                                 token.div.insertBefore(fullContainer, token.div.firstElementChild);
-                                heightOffset.style.height = token.div.renderedHeight + fontTeX.fontDimen.visibleWidthOf('|', family) + .12 + 'em';
+                                heightOffset.style.height = token.div.renderedHeight / multiplier + fontTeX.fontDimen.visibleWidthOf('|', family) + .16 + 'em';
                                 heightOffset.style.display = 'inline-block';
                                 heightOffset.style.width = 0;
                                 token.div.insertBefore(heightOffset, fullContainer);
 
-                                token.div.renderedHeight += fontTeX.fontDimen.visibleWidthOf('|', family) + .12;
+                                token.div.renderedHeight += fontTeX.fontDimen.visibleWidthOf('|', family) + .16;
 
                                 token.atomType = 0;
                                 break;
@@ -5359,8 +5794,9 @@
                                 fullContainer.style.display = 'inline-block';
                                 fullContainer.style.width = fullContainer.style.height = 0;
                                 fullContainer.style.position = 'relative';
-                                fullContainer.style.top = -fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedDepth + .12 + 'em';
+                                fullContainer.style.top = -fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedDepth / multiplier + .12 + 'em';
                                 fullContainer.style.verticalAlign = 'text-bottom';
+                                fullContainer.style.pointerEvents = 'none';
                                 widthContainer.style.display = 'inline-block';
                                 widthContainer.style.webkitUserSelect =
                                     widthContainer.style.mozUserSelect =
@@ -5372,14 +5808,19 @@
                                 underline.style.borderTop = fontTeX.fontDimen.visibleWidthOf('|', family) + 'em solid currentColor';
                                 widthContainer.appendChild(underline);
                                 clone.style.visibility = 'hidden';
+                                clone.style.fontSize = '';
+                                clone.style.height = 0;
                                 widthContainer.appendChild(clone);
                                 fullContainer.appendChild(widthContainer);
                                 token.div.insertBefore(fullContainer, token.div.firstElementChild);
-                                token.div.style.paddingBottom = token.div.style.paddingBottom ?
-                                    'calc(' + token.div.style.paddingBottom + ' + ' + (fontTeX.fontDimen.visibleWidthOf('|', family) + .12 - Math.max(0, fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth)) + 'em)':
-                                    fontTeX.fontDimen.visibleWidthOf('|', family) + .12 - Math.max(0, fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth) + 'em';
+                                heightOffset.style.verticalAlign = 'text-top';
+                                heightOffset.innerText = '\u00A0';
+                                heightOffset.style.paddingBottom = fontTeX.fontDimen.visibleWidthOf('|', family) + .16 - fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedDepth / multiplier + 'em';
+                                heightOffset.style.display = 'inline-block';
+                                heightOffset.style.width = 0;
+                                token.div.insertBefore(heightOffset, fullContainer);
 
-                                token.div.renderedDepth += fontTeX.fontDimen.visibleWidthOf('|', family) + .12;
+                                token.div.renderedDepth += fontTeX.fontDimen.visibleWidthOf('|', family) + .16;
 
                                 token.atomType = 0;
                                 break;
@@ -5405,11 +5846,12 @@
                                 acc.innerText = token.accChar;
                                 var offset = token.nucleus && (token.nucleus.type == 'symbol' && (font == 'it' || font == 'sl')) ? fontTeX.fontDimen.italCorrOf(token.accChar, family) : 0;
                                 offset = offset || (token.nucleus && token.nucleus.length == 1 && token.nucleus[0].nucleus && token.nucleus[0].nucleus.type == 'symbol' && token.nucleus[0].atomType == 7 && font == 'nm' ? fontTeX.fontDimen.italCorrOf(token.accChar, family) : 0);
+                                var oldFontSize = token.div.style.fontSize;
                                 token.div.style.fontSize = '50px';
                                 container.appendChild(token.div);
                                 acc.style.left = (token.div.getBoundingClientRect().width / 50 - fontTeX.fontDimen.widthOf(token.accChar, family, font)) / 2 + offset + 'em';
                                 container.removeChild(token.div);
-                                token.div.style.fontSize = '';
+                                token.div.style.fontSize = oldFontSize;
                                 token.div.insertBefore(acc, token.div.firstElementChild);
                                 spacer.style.display = 'inline-block';
                                 spacer.style.width = 0;
@@ -5621,8 +6063,6 @@
                                 }
                             }
 
-                            // If the atom is an actual line break item (from "\\"), it should make a new flex
-                            // box child just like with a Rel or Bin atom.
                             if (atomIndex != 0) {
                                 // If an atom precedes the current one, a glue item is inserted just like in plain
                                 // TeX. The inter-atom glue chart was taken from page 170 of the TeXbook. For a few
@@ -5666,8 +6106,13 @@
                                 }
                                 if (spacing) childFlexes.last.appendChild(space);
                             }
+
                             childFlexes.last.renderedHeight = Math.max(childFlexes.last.renderedHeight || 0, token.div.renderedHeight);
                             childFlexes.last.renderedDepth = Math.max(childFlexes.last.renderedDepth || 0, token.div.renderedDepth);
+                            childFlexes.last.baseline = Math.max(childFlexes.last.baseline || fontTeX.fontDimen.baselineHeightOf(family), token.div.baseline);
+
+                            // If the atom is an actual line break item (from "\\"), it should make a new flex
+                            // box child just like with a Rel or Bin atom.
                             if (token.isLineBreak) {
                                 childFlexes.push(token.div);
                                 childFlexes.push(document.createElement('div'));
@@ -5722,11 +6167,13 @@
                 flex.appendChild(childFlexes[i]);
                 flex.renderedHeight = Math.max(flex.renderedHeight || 0, childFlexes[i].renderedHeight || 0);
                 flex.renderedDepth = Math.max(flex.renderedDepth || 0, childFlexes[i].renderedDepth || 0);
+                flex.baseline = Math.max(flex.baseline || fontTeX.fontDimen.baselineHeightOf(family), childFlexes[i].baseline || fontTeX.fontDimen.baselineHeightOf(family));
             }
 
             parent.appendChild(flex);
             parent.renderedHeight = Math.max(parent.renderedHeight || 0, flex.renderedHeight);
             parent.renderedDepth = Math.max(parent.renderedDepth || 0, flex.renderedDepth);
+            parent.baseline = Math.max(parent.baseline || fontTeX.fontDimen.baselineHeightOf(family), flex.baseline);
 
             return lastChar;
         }
@@ -5911,6 +6358,31 @@
                 // be executed each time the primitive needs to be evaluated. The function gets one
                 // argument when called that contains all the data and functions necessary for the
                 // function to perform its action.
+                '(': new Primitive('(', function(e) {
+                    // The \( is technically not a primitive in TeX, but it's treated as one here so
+                    // that it can't be deleted. If a \( is found while parsing, it indicated the start
+                    // of a new inline equation. If it's found within an equation though, then it's
+                    // just marked as invalid.
+
+                    this.invalid = true;
+                    return [this];
+                }),
+                ')': new Primitive(')', function(e) {
+                    // This is the closing version of \(. This could actually be implemented as a macro
+                    // instead of as a primitive, but it'd be weird to have a \( primitive but not a \).
+
+                    if (e.style == 'inline') {
+                        return [{
+                            type: 'character',
+                            char: '$',
+                            code: 36,
+                            cat: data.cats.math
+                        }];
+                    } else {
+                        this.invalid = true;
+                        return [this];
+                    }
+                }),
                 '/': new Primitive('/', function(e) {
                     // The \/ command is an italic correction. Right now, a basic kern is added that's
                     // marked with an italicCorrection tag. Later, when kerns and glues are being eval-
@@ -5930,6 +6402,32 @@
                         italicCorrection: true
                     });
                     return [];
+                }),
+                '[': new Primitive('[', function(e) {
+                    // This is just like the "\(" command except for displayed equations.
+
+                    this.invalid = true;
+                    return [this];
+                }),
+                ']': new Primitive(']', function(e) {
+                    // The \) version for displayed equations.
+
+                    if (e.style == 'display') {
+                        return [{
+                            type: 'character',
+                            char: '$',
+                            code: 36,
+                            cat: data.cats.math
+                        },{
+                            type: 'character',
+                            char: '$',
+                            code: 36,
+                            cat: data.cats.math
+                        }];
+                    } else {
+                        this.invalid = true;
+                        return [this];
+                    }
                 }),
                 above: new Primitive('above', function(e) {
                     // \above creates fraction tokens. All the tokens in the current scope up to the
@@ -7002,20 +7500,52 @@
                                 e.mouth.loadState(csnameSym);
                                 return [this];
                             }
-                            // Make sure the token isn't \endcsname.
-                            if (macro === data.defs.primitive.endcsname || macro.proxy && macro.original === data.defs.primitive.endcsname) {
+
+                            // If the macro is a proxy (\let), get the original.
+                            if (macro.proxy) macro = macro.original;
+
+                            // If the macro is \endcsname, the whole thing ends and whatever was gotten so far
+                            // is counted as the name.
+                            if (macro === data.defs.primitive.endcsname) {
                                 break;
-                            }
-                            // If the macro is a primitive, it can't be made into characters by itself and the
-                            // thing is made invalid.
-                            if (macro instanceof Primitive || macro.proxy && macro.original instanceof Primitive) {
+                            } else if (
+                                macro === data.defs.primitive.the          ||
+                                macro === data.defs.primitive.expandafter  ||
+                                macro === data.defs.primitive.number       ||
+                                macro === data.defs.primitive.romannumeral ||
+                                macro === data.defs.primitive.csname       ||
+                                macro === data.defs.primitive.string       ||
+                                macro === data.defs.primitive.if           ||
+                                macro === data.defs.primitive.ifcase       ||
+                                macro === data.defs.primitive.ifcat        ||
+                                macro === data.defs.primitive.ifdim        ||
+                                macro === data.defs.primitive.ifeof        ||
+                                macro === data.defs.primitive.iffalse      ||
+                                macro === data.defs.primitive.ifodd        ||
+                                macro === data.defs.primitive.ifnum        ||
+                                macro === data.defs.primitive.ifhmode      ||
+                                macro === data.defs.primitive.ifinner      ||
+                                macro === data.defs.primitive.ifmmode      ||
+                                macro === data.defs.primitive.iftrue       ||
+                                macro === data.defs.primitive.ifvmode      ||
+                                macro === data.defs.primitive.ifvoid       ||
+                                macro === data.defs.primitive.ifx) {
+                                var expansion = e.mouth.expand(token, e.mouth);
+                                if (expansion.length == 1 && expansion[0] === token && expansion[0].invalid) {
+                                    this.invalid = true;
+                                    e.mouth.loadState(csnameSym);
+                                    return [this];
+                                }
+                                e.mouth.queue.unshift.apply(e.mouth.queue, expansion);
+                                continue;
+                            } else if (macro instanceof Primitive) {
+                                // If the macro is a nonexpandable primitive, it's marked as invalid.
                                 this.invalid = true;
                                 e.mouth.loadState(csnameSym);
                                 return [this];
                             }
 
-                            // Now, the macro has to be expanded. The `Mouth.expand' function is used.
-                            if (macro.proxy) macro = macro.original;
+                            // If it's a normal macro, it's expanded.
                             var expansion = e.mouth.expand(token, e.mouth);
                             if (expansion.length == 1 && expansion[0] === token && expansion[0].invalid) {
                                 this.invalid = true;
@@ -7670,7 +8200,7 @@
                             }
 
                             // Now, the macro has to be expanded.
-                            e.mouth.queue.unshift.apply(e.mouth, e.mouth.expand(token, e.mouth));
+                            e.mouth.queue.unshift.apply(e.mouth.queue, e.mouth.expand(token, e.mouth));
                         } else replacement.push(token);
                     }
 
@@ -7764,10 +8294,13 @@
                 }),
                 Error: new Primitive('Error', function(e) {
                     // \Error is not a builtin TeX primitive. In TeX, there's a way to write to the
-                    // terminal to report errors. In this version of TeX, error are reported by marking
-                    // tokens as invalid and rendering them in red. That's where this primitive comes
-                    // in. It takes a single argument and will expand to the argument while marking it
-                    // invalid.
+                    // terminal to report errors. In this version of TeX, errors are reported by mark-
+                    // ing tokens as invalid and rendering them in red. That's where this primitive
+                    // comes in. It takes a single argument and will expand to the argument while mark-
+                    // ing each token inside the argument invalid. Commands inside are not expanded and
+                    // instead treated as literal tokens (e.g. \Error{\macro} will produce a "\macro"
+                    // red text instead of what \macro expands to). To get commands inside to be ex-
+                    // panded, use \ExpandedError.
 
                     var errSym = Symbol();
                     e.mouth.saveState(errSym);
@@ -7806,7 +8339,8 @@
                                 char: a,
                                 code: a.charCodeAt(0),
                                 cat: 12,
-                                invalid: true
+                                invalid: true,
+                                recognized: true
                             };
                         });
                     }
@@ -7843,6 +8377,118 @@
                     // Now, add the tokens back to the mouth with the second token expanded and the
                     // first left alone.
                     return [first].concat(expansion);
+                }),
+                ExpandedError: new Primitive('ExpandedError', function(e) {
+                    // \ExpandedError is the same as \Error except commands and active characters in-
+                    // side its argument are expanded (unless preceded by \noexpand). Primitive com-
+                    // mands though are not expanded to prevent commands like \over from ruining the
+                    // entire scope.
+
+                    var errSym = Symbol();
+                    e.mouth.saveState(errSym);
+
+                    var token = e.mouth.eat();
+                    if (!token || token.type != 'character' || token.cat != data.cats.open) {
+                        this.invalid = true;
+                        return [this];
+                    } else {
+                        var openGroups = 0,
+                            tokens = [],
+                            noexpand = false;
+                        while (true) {
+                            var token = e.mouth.eat('pre space');
+
+                            if (!token) {
+                                this.invalid = true;
+                                e.mouth.loadState(errSym);
+                                return [this];
+                            } else if (token.type == 'character' && token.cat == data.cats.open) {
+                                openGroups++;
+                                tokens.push(token.char);
+                                noexpand = false;
+                            } else if (token.type == 'character' && token.cat == data.cats.close) {
+                                if (!openGroups) break;
+                                openGroups--;
+                                tokens.push(token.char);
+                                noexpand = false;
+                            } else if (token.type == 'command' || token.type == 'character' && token.cat == data.cats.active) {
+                                var macro = token.type == 'command' ? e.scopes.last.defs.primitive[token.name] || e.scopes.last.defs.macros[token.name] : e.scopes.last.defs.active[token.char];
+                                if (!macro) {
+                                    this.invalid = true;
+                                    e.mouth.loadState(errSym);
+                                    return [this];
+                                }
+                                if (macro.proxy) macro = macro.original;
+
+                                if (macro === data.defs.primitive.noexpand) {
+                                    noexpand = true;
+                                    continue;
+                                } else if (!noexpand && (
+                                    macro === data.defs.primitive.the          ||
+                                    macro === data.defs.primitive.expandafter  ||
+                                    macro === data.defs.primitive.number       ||
+                                    macro === data.defs.primitive.romannumeral ||
+                                    macro === data.defs.primitive.csname       ||
+                                    macro === data.defs.primitive.string       ||
+                                    macro === data.defs.primitive.if           ||
+                                    macro === data.defs.primitive.ifcase       ||
+                                    macro === data.defs.primitive.ifcat        ||
+                                    macro === data.defs.primitive.ifdim        ||
+                                    macro === data.defs.primitive.ifeof        ||
+                                    macro === data.defs.primitive.iffalse      ||
+                                    macro === data.defs.primitive.ifodd        ||
+                                    macro === data.defs.primitive.ifnum        ||
+                                    macro === data.defs.primitive.ifhmode      ||
+                                    macro === data.defs.primitive.ifinner      ||
+                                    macro === data.defs.primitive.ifmmode      ||
+                                    macro === data.defs.primitive.iftrue       ||
+                                    macro === data.defs.primitive.ifvmode      ||
+                                    macro === data.defs.primitive.ifvoid       ||
+                                    macro === data.defs.primitive.ifx)) {
+                                    var expansion = e.mouth.expand(token, e.mouth);
+                                    if (expansion.length == 1 && expansion[0] === token && expansion[0].invalid) {
+                                        this.invalid = true;
+                                        e.mouth.loadState(errSym);
+                                        return [this];
+                                    }
+                                    e.mouth.queue.unshift.apply(e.mouth.queue, expansion);
+                                    noexpand = false;
+                                    continue;
+                                } else if (macro instanceof Primitive) {
+                                    tokens.push(String.fromCharCode(e.scopes.last.registers.named.escapechar.value));
+                                    tokens.push.apply(tokens, macro.name.split(''));
+                                    noexpand = false;
+                                    continue;
+                                }
+                                if (noexpand) {
+                                    tokens.push(String.fromCharCode(e.scopes.last.registers.named.escapechar.value));
+                                    tokens.push.apply(tokens, token.name.split(''));
+                                } else {
+                                    var expansion = e.mouth.expand(token, e.mouth);
+                                    if (expansion.length == 1 && expansion[0] === token && expansion[0].invalid) {
+                                        this.invalid = true;
+                                        e.mouth.loadState(errSym);
+                                        return [this];
+                                    }
+                                    e.mouth.queue.unshift.apply(e.mouth.queue, expansion);
+                                }
+                                noexpand = false;
+                            } else {
+                                tokens.push(token.char);
+                                noexpand = false;
+                            }
+                        }
+                        return tokens.map(function(a) {
+                            return {
+                                type: 'character',
+                                char: a,
+                                code: a.charCodeAt(0),
+                                cat: 12,
+                                invalid: true,
+                                recognized: true
+                            };
+                        });
+                    }
                 }),
                 fi: new Primitive('fi', function(e) {
                     // \fi works the same as \else in that it's handled in the definitions of \if com-
@@ -10240,7 +10886,7 @@
 
                     var integer = e.mouth.eat('integer');
                     if (!integer) {
-                        this.invaldi = true;
+                        this.invalid = true;
                         return [this];
                     }
 
@@ -11733,7 +12379,7 @@
                 boxmaxdepth: new DimenReg(65536 * 16394, -65536),
                 lineskiplimit: new DimenReg(0, 0),
                 delimitershortfall: new DimenReg(65536 * 5, 0),
-                nulldelimiterspace: new DimenReg(65536 * 1.2, 0),
+                nulldelimiterspace: new DimenReg(0, 65536 * .1),
                 scriptspace: new DimenReg(65536 * 0.5, 0),
                 mathsurround: new DimenReg(0, 0),
                 predisplaystyle: new DimenReg(0, 0),
@@ -11986,13 +12632,7 @@
                         continue;
                     }
 
-                    if ((macro === data.defs.primitive.the          || macro.proxy && macro.original === data.defs.primitive.the)          ||
-                        (macro === data.defs.primitive.expandafter  || macro.proxy && macro.original === data.defs.primitive.expandafter)  ||
-                        (macro === data.defs.primitive.number       || macro.proxy && macro.original === data.defs.primitive.number)       ||
-                        (macro === data.defs.primitive.romannumeral || macro.proxy && macro.original === data.defs.primitive.romannumeral) ||
-                        (macro === data.defs.primitive.csname       || macro.proxy && macro.original === data.defs.primitive.csname)       ||
-                        (macro === data.defs.primitive.string       || macro.proxy && macro.original === data.defs.primitive.string)       ||
-                        (macro === data.defs.primitive.if           || macro.isLet && macro.original === data.defs.primitive.if)           ||
+                    if ((macro === data.defs.primitive.if           || macro.isLet && macro.original === data.defs.primitive.if)           ||
                         (macro === data.defs.primitive.ifcase       || macro.isLet && macro.original === data.defs.primitive.ifcase)       ||
                         (macro === data.defs.primitive.ifcat        || macro.isLet && macro.original === data.defs.primitive.ifcat)        ||
                         (macro === data.defs.primitive.ifdim        || macro.isLet && macro.original === data.defs.primitive.ifdim)        ||
@@ -12007,9 +12647,18 @@
                         (macro === data.defs.primitive.ifvmode      || macro.isLet && macro.original === data.defs.primitive.ifvmode)      ||
                         (macro === data.defs.primitive.ifvoid       || macro.isLet && macro.original === data.defs.primitive.ifvoid)       ||
                         (macro === data.defs.primitive.ifx          || macro.isLet && macro.original === data.defs.primitive.ifx)) {
-                        var expansion = mouth.expand(token, mouth);
-                        mouth.queue.unshift.apply(mouth.queue, expansion);
-                        continue;
+                        // If a \if was found, all the tokens up to the next \fi are added to `tokens'. The
+                        // \if isn't expanded.
+                        var expansion = goToFi();
+                        if (expansion) {
+                            tokens.push(token);
+                            tokens.push.apply(tokens, expansion);
+                            continue;
+                        } else {
+                            this.invalid = true;
+                            mouth.loadState(stateSymbol);
+                            return [this];
+                        }
                     } else if (macro === data.defs.primitive.else || macro.proxy && macro.original === data.defs.primitive.else) {
                         // A \else was found. Skip all the next tokens until a \fi. `skipUntil' won't eval-
                         // uate the \fi. That has to be done on the next iteration of the while loop.
@@ -12018,6 +12667,10 @@
                     } else if (macro === data.defs.primitive.fi || macro.proxy && macro.original === data.defs.primitive.fi) {
                         // A \fi was found. The \if block is done and can return the tokens now.
                         break;
+                    } else {
+                        // A nonexpandable primitive or a macro was found. It should be added as a regular
+                        // token that will expand after the whole \if is done being executed.
+                        tokens.push(token);
                     }
                 } else {
                     // The token is just a regular unexpandable token. Add it to the list. These tokens
@@ -12041,13 +12694,13 @@
                     // There is no \else special if block here because it should have already been e-
                     // valuated. Instead, it's expanded naturally, which will mark it as invalid for
                     // being in the wrong context.
-                    if ((macro === data.defs.primitive.the          || macro.proxy && macro.original === data.defs.primitive.the)          ||
-                        (macro === data.defs.primitive.expandafter  || macro.proxy && macro.original === data.defs.primitive.expandafter)  ||
-                        (macro === data.defs.primitive.number       || macro.proxy && macro.original === data.defs.primitive.number)       ||
-                        (macro === data.defs.primitive.romannumeral || macro.proxy && macro.original === data.defs.primitive.romannumeral) ||
-                        (macro === data.defs.primitive.csname       || macro.proxy && macro.original === data.defs.primitive.csname)       ||
-                        (macro === data.defs.primitive.string       || macro.proxy && macro.original === data.defs.primitive.string)       ||
-                        (macro === data.defs.primitive.if           || macro.isLet && macro.original === data.defs.primitive.if)           ||
+
+                    if (!macro) {
+                        tokens.push(token);
+                        continue;
+                    }
+
+                    if ((macro === data.defs.primitive.if           || macro.isLet && macro.original === data.defs.primitive.if)           ||
                         (macro === data.defs.primitive.ifcase       || macro.isLet && macro.original === data.defs.primitive.ifcase)       ||
                         (macro === data.defs.primitive.ifcat        || macro.isLet && macro.original === data.defs.primitive.ifcat)        ||
                         (macro === data.defs.primitive.ifdim        || macro.isLet && macro.original === data.defs.primitive.ifdim)        ||
@@ -12062,10 +12715,20 @@
                         (macro === data.defs.primitive.ifvmode      || macro.isLet && macro.original === data.defs.primitive.ifvmode)      ||
                         (macro === data.defs.primitive.ifvoid       || macro.isLet && macro.original === data.defs.primitive.ifvoid)       ||
                         (macro === data.defs.primitive.ifx          || macro.isLet && macro.original === data.defs.primitive.ifx)) {
-                        var expansion = mouth.expand(token, mouth);
-                        mouth.queue.unshift.apply(mouth.queue, expansion);
+                        var expansion = goToFi();
+                        if (expansion) {
+                            tokens.push(token);
+                            tokens.push.apply(tokens, expansion);
+                            continue;
+                        } else {
+                            this.invalid = true;
+                            mouth.loadState(stateSymbol);
+                            return [this];
+                        }
                     } else if (macro && (macro === data.defs.primitive.fi || macro.proxy && macro.original === data.defs.primitive.fi)) {
                         break;
+                    } else {
+                        tokens.push(token);
                     }
                 } else {
                     tokens.push(token);
@@ -12135,6 +12798,59 @@
                     }
                 }
             }
+        }
+
+        // `goToFi' will skip tokens similar to `skipUntil'. It'll look for the next \fi
+        // and return the list of tokens that were passed in between. If a \if is found
+        // while going through tokens, all the tokens between up until the \fi needs to
+        // be returned without being evaluated yet.
+        function goToFi() {
+            var tokens = [];
+            while (true) {
+                var token = mouth.eat();
+
+                if (!token) {
+                    return null;
+                } else if (token.type == 'command' || token.type == 'character' && token.cat === data.cats.active) {
+                    var macro = token.type == 'command' ? scopes.last.defs.primitive[token.name] || scopes.last.defs.macros[token.name] : scopes.last.defs.active[token.char];
+
+                    if (!macro) {
+                        tokens.push(token);
+                        continue;
+                    }
+
+                    // If another \if was found, an extra \fi needs to be found first.
+                    if ((macro === data.defs.primitive.if      || macro.isLet && macro.original === data.defs.primitive.if)      ||
+                        (macro === data.defs.primitive.ifcase  || macro.isLet && macro.original === data.defs.primitive.ifcase)  ||
+                        (macro === data.defs.primitive.ifcat   || macro.isLet && macro.original === data.defs.primitive.ifcat)   ||
+                        (macro === data.defs.primitive.ifdim   || macro.isLet && macro.original === data.defs.primitive.ifdim)   ||
+                        (macro === data.defs.primitive.ifeof   || macro.isLet && macro.original === data.defs.primitive.ifeof)   ||
+                        (macro === data.defs.primitive.iffalse || macro.isLet && macro.original === data.defs.primitive.iffalse) ||
+                        (macro === data.defs.primitive.ifodd   || macro.isLet && macro.original === data.defs.primitive.ifodd)   ||
+                        (macro === data.defs.primitive.ifnum   || macro.isLet && macro.original === data.defs.primitive.ifnum)   ||
+                        (macro === data.defs.primitive.ifhmode || macro.isLet && macro.original === data.defs.primitive.ifhmode) ||
+                        (macro === data.defs.primitive.ifinner || macro.isLet && macro.original === data.defs.primitive.ifinner) ||
+                        (macro === data.defs.primitive.ifmmode || macro.isLet && macro.original === data.defs.primitive.ifmmode) ||
+                        (macro === data.defs.primitive.iftrue  || macro.isLet && macro.original === data.defs.primitive.iftrue)  ||
+                        (macro === data.defs.primitive.ifvmode || macro.isLet && macro.original === data.defs.primitive.ifvmode) ||
+                        (macro === data.defs.primitive.ifvoid  || macro.isLet && macro.original === data.defs.primitive.ifvoid)  ||
+                        (macro === data.defs.primitive.ifx     || macro.isLet && macro.original === data.defs.primitive.ifx)) {
+                        var expansion = goToFi();
+                        if (expansion) {
+                            tokens.push(token);
+                            tokens.push.apply(tokens, expansion)
+                            continue;
+                        } else return null;
+                    }
+                    tokens.push(token);
+                    if (macro === data.defs.primitive.fi || macro.isLet && macro.original === data.defs.primitive.fi) {
+                        return tokens;
+                    }
+                } else {
+                    tokens.push(token);
+                }
+            }
+            return tokens;
         }
     }
 
@@ -12318,7 +13034,8 @@
         \\def\\arctan{\\mathop{\\rm arctan}\\nolimits}\n\
         \\def\\arg{\\mathop{\\rm arg}\\nolimits}\n\
         \\def\\bar{\\accent"AF }\n\
-        \\def\\bmod{\\nonscript\\mskip-\\medmuskip\\mkern5mu\\mathbin{\\rm mod}\\mkern5mu\\nonscript\\mskip-\\medmuskip}\n\
+        \\def\\bmod{\
+            \\nonscript\\mskip-\\medmuskip\\mkern5mu\\mathbin{\\rm mod}\\mkern5mu\\nonscript\\mskip-\\medmuskip}\n\
         \\def\\breve{\\accent"02D8 }\n\
         \\def\\cdot{\\mathbin{\\vcenter.}}}\n\
         \\def\\cdotp{\\mathpunct{\\vcenter.}}}\n\
@@ -12365,7 +13082,8 @@
         \\def\\sec{\\mathop{\\rm sec}\\nolimits}\n\
         \\def\\sin{\\mathop{\\rm sin}\\nolimits}\n\
         \\def\\sinh{\\mathop{\\rm sinh}\\nolimits}\n\
-        \\def\\skew#1#2#3{{\\muskip0 #1mu\\divide\\muskip0by2 \\mkern\\muskip0%\n\
+        \\def\\skew#1#2#3{\
+            {\\muskip0 #1mu\\divide\\muskip0by2 \\mkern\\muskip0%\n\
             #2{\\mkern-\\muskip0{#3}\\mkern\\muskip0}\\mkern-\\muskip0}{}}\n\
         \\def\\sup{\\mathop{\\rm sup}}\n\
         \\def\\t{\\accent"0311 }\n\
@@ -12400,11 +13118,13 @@
         \\def\\multispan#1{\\omit \\mscount#1\\relax\\loop\\ifnum\\mscount>1\\sp@n\\repeat}\n\
         \\def\\sp@n{\\span\\omit\\advance\\mscount-1}\n\
         \\def\\two@digits#1{\\ifnum#1<10 0\\fi\\the#1}\n\
-        \\def\\dospecials{\\do\\ \\do\\\\\\do\\{\\do\\}\\do\\$\\do\\&\\do\\#\\do\\^\\do\\^^K\\do\\_\\do\\^^A\\do\\%\\do\\~}\n\
+        \\def\\dospecials{\
+            \\do\\ \\do\\\\\\do\\{\\do\\}\\do\\$\\do\\&\\do\\#\\do\\^\\do\\^^K\\do\\_\\do\\^^A\\do\\%\\do\\~}\n\
         \\def\\choose{\\atopwithdelims()}\n\
         \\def\\brack{\\atopwithdelims[]}\n\
         \\def\\brace{\\atopwithdelims\\{\\}}\n\
-        \\def\\mathpalette#1#2{\\mathchoice{#1\\displaystyle{#2}}{#1\\textstyle{#2}}{#1\\scriptstyle{#2}}{#1\\scriptscriptstyle{#2}}}\n\
+        \\def\\mathpalette#1#2{\
+            \\mathchoice{#1\\displaystyle{#2}}{#1\\textstyle{#2}}{#1\\scriptstyle{#2}}{#1\\scriptscriptstyle{#2}}}\n\
         \\def\\frac#1#2{{#1\\over#2}}\n\
         \\def\\mathrm#1{{\\rm#1}}\n\
         \\def\\textrm#1{{\\rm#1}}\n\
@@ -12414,7 +13134,66 @@
         \\def\\textit#1{{\\it#1}}\n\
         \\def\\mathsl#1{{\\sl#1}}\n\
         \\def\\textsl#1{{\\sl#1}}\n\
-        \\makeatother\n\
+        \\def\\@gobble#1{}\n\
+        \\def\\@ifnextchar#1#2#3{\
+            \\let\\@ifnextchar@charone=#1\n\
+            \\def\\@ifnextchar@true{#2}\n\
+            \\def\\@ifnextchar@false{#3}\n\
+            \\futurelet\\@ifnextchar@chartwo\\@ifnextchar@check}\n\
+        \\def\\@ifnextchar@check{\
+            \\if\\@ifnextchar@charone\\@ifnextchar@chartwo\\@ifnextchar@true\\else\\@ifnextchar@false\\fi\
+        }\n\
+        \\def\\newcommand#1{\\@ifnextchar[{\\@newcommand#1}{\\@newcommand#1[0]}}\n\
+        \\def\\@newcommand#1[#2]{\
+            \\count0=#2\
+            \\ifnum\\count0<0\
+                \\Error{NotEnoughParameters}\
+            \\else\
+                \\ifnum\\count0>9\
+                    \\Error{TooManyParameters}\
+                \\else\
+                    \\@ifnextchar[{\\ifnum\\count0<1\
+                        \\Error{ParameterNumberMustBe>0}\
+                    \\else\
+                        \\@newcommand@optarg#1[#2]\
+                    \\fi}{\\@newcommand@nooptarg#1[#2]}\
+                \\fi\
+            \\fi\
+        }\n\
+        \\def\\@paramnums#1{\
+            \\ifcase#1\
+            \\or####1\
+            \\or####1####2\
+            \\or####1####2####3\
+            \\or####1####2####3####4\
+            \\or####1####2####3####4####5\
+            \\or####1####2####3####4####5####6\
+            \\or####1####2####3####4####5####6####7\
+            \\or####1####2####3####4####5####6####7####8\
+            \\or####1####2####3####4####5####6####7####8####9\\fi}\n\
+        \\def\\@paramnums@bracket#1{\
+            \\ifcase#1\
+            \\or[####1]\
+            \\or[####1]####2\
+            \\or[####1]####2####3\
+            \\or[####1]####2####3####4\
+            \\or[####1]####2####3####4####5\
+            \\or[####1]####2####3####4####5####6\
+            \\or[####1]####2####3####4####5####6####7\
+            \\or[####1]####2####3####4####5####6####7####8\
+            \\or[####1]####2####3####4####5####6####7####8####9\\fi}\n\
+        \\def\\@newcommand@nooptarg#1[#2]#{\
+            \\edef\\@newcommand@make{\\def\\noexpand#1\\@paramnums#2}\n\
+            \\@newcommand@make}\n\
+        \\def\\@newcommand@optarg#1[#2][#3]#{\
+            \\def#1{\
+                \\@ifnextchar[{\\csname\\string#1\\endcsname}{\\csname\\string#1\\endcsname[#3]}}\
+            \\edef\\@newcommand@make{\
+                \\noexpand\\expandafter\\def\
+                \\noexpand\\csname\\noexpand\\string\\noexpand#1\\endcsname\\@paramnums@bracket#2}\n\
+            \\@newcommand@make}\n\
+        \\newcommand\\sqrt[2][]{\\radical#2}\n\
+        \\makeatother\
     ', 'display');
 
     /*
