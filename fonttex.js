@@ -20,7 +20,7 @@
     // If, for whatever reason, someone loaded two version of fontTeX, the one with the
     // latest version number wins. They're compared as string instead of numbers to
     // handle version numbers with double digits like 1.10.15.
-    var current = '0.3';
+    var current = '0.4';
     if (fontTeX.version) {
         if (current.split('.').map(function(number) {
             return String.fromCharCode(48 + +number);
@@ -28,7 +28,7 @@
             return String.fromCharCode(48 + +number);
         }).join('')) {
             return;
-        };
+        }
     }
     fontTeX.version = current;
 
@@ -36,31 +36,46 @@
     // The user can change some of the options on fontTeX to configure it to how they
     // want it to behave.
     fontTeX.config = function(name, value) {
-        var keys = ['autoupdate','autoupdaterate','parsehtml'],
-            returnValue = null;
+        var keys = [
+            'autoupdate.enabled',
+            'autoupdate.rate',
+            'parsehtml',
+            'radical.build',
+            'radical.w',
+            'radical.t',
+            'radical.h',
+            'radical.verticalthreshold'
+        ], returnValue = null;
         if (typeof name == 'string' && keys.includes(name.toLowerCase())) {
             if (arguments.length > 1) {
-                settings[name.toLowerCase()] = value;
+                value = settings[name.toLowerCase()][1](value);
+                if (typeof value == 'number' && !isFinite(value)) value = 0;
+                settings[name.toLowerCase()][0] = value;
             }
-            returnValue = settings[name.toLowerCase()];
-        } else if (name) {
+            returnValue = settings[name.toLowerCase()][0];
+        } else if (typeof name == 'string') {
+            return null;
+        } else {
             var returnValue = {};
             for (var i = 0, l = keys.length; i < l; i++) {
                 var key = keys[i];
-                if (key in name) {
-                    settings[key] = name[key];
+                if (name && key in name) {
+                    name[key] = settings[key][1](name[key]);
+                    if (typeof name[key] == 'number' && !isFinite(name[key])) name[key] = 0;
+                    settings[key][0] = name[key];
                 }
-                returnValue[key] = settings[key];
+                returnValue[key] = settings[key][0];
             }
         }
 
-        // If 'autoupdate' was changed, the listener controlling the auto updates might
-        // need to be stopped or restarted.
-        if (!!styleChangeListener.interval != !!settings.autoupdate || styleChangeListener.rate != settings.autoupdaterate) {
+        // If 'autoupdate.rate' or 'autoupdate.endabled' was changed, the interval may have
+        // to be stopped or restarted.
+        if (!!styleChangeListener.interval != !!settings['autoupdate.enabled'][0] || styleChangeListener.rate != settings['autoupdate.rate'][0]) {
             clearInterval(styleChangeListener.interval);
-            styleChangeListener.rate = Math.max(settings.autoupdaterate, 0) || styleChangeListener.rate;
-            if (settings.autoupdate && Math.max(settings.autoupdaterate, 0)) {
+            styleChangeListener.rate = Math.max(settings['autoupdate.rate'][0], 0) || styleChangeListener.rate;
+            if (settings['autoupdate.enabled'][0] && Math.max(settings['autoupdate.rate'][0], 0)) {
                 styleChangeListener.interval = setInterval(styleChangeListener.listener, styleChangeListener.rate);
+                styleChangeListener.listener();
             } else styleChangeListener.interval = 0;
         }
 
@@ -69,24 +84,27 @@
     // The functions above are just an interface to change the values in the real ob-
     // ject below.
     var settings = {
-        autoupdate: true,
-        autoupdaterate: 3000,
-        parsehtml: true
+        'autoupdate.enabled': [true, Boolean],
+        'autoupdate.rate': [500, Number],
+        'parsehtml': [true, Boolean],
+        'radical.build': [true, Boolean],
+        'radical.w': [0.5, Number],
+        'radical.t': [0.15, Number],
+        'radical.h': [1.25, Number],
+        'radical.verticalthreshold': [2.75, Number]
     };
 
     // `styleChangeListener' is an object dedicated to listening for style changes in
-    // an element with rendered TeX. Every 3000 milliseconds (can be changed using
+    // an element with rendered TeX. Every 500 milliseconds (can be changed using
     // `fontTeX.config'), a function is run that checks whether the font-size or font-
     // family of an element has changed since the last time it was executed. If there
     // was a change, that element's TeX is re-rendered to match the new styles.
     var styleChangeListener = {
         interval: 0,
         data: [],
-        rate: settings.autoupdaterate,
+        rate: settings['autoupdate.rate'][0],
         listener: function updateTeX() {
-            var data = styleChangeListener.data,
-                updates = 0;
-            for (var i = 0, l = data.length; i < l; i++) {
+            for (var data = styleChangeListener.data, i = 0, l = data.length, updates = 0; i < l; i++) {
                 if (data[i].styles.fontSize != data[i].oldFontSize || data[i].styles.fontFamily != data[i].oldFontFamily) {
                     data[i].texInstance.renderIn(data[i].elem);
                     data[i].oldFontSize = data[i].styles.fontSize;
@@ -97,11 +115,11 @@
             return updates;
         }
     }
-    styleChangeListener.interval = setInterval(styleChangeListener.listener, settings.autoupdaterate);
+    styleChangeListener.interval = setInterval(styleChangeListener.listener, settings['autoupdate.rate'][0]);
 
     // If the user decides to change the style on an element with TeX in it, but they
-    // don't want to wait the three seconds and instead want to change it immediately,
-    // they can call `fontTeX.updateTeX()' to force an update to happen right away.
+    // don't want to wait the 500 milliseconds and instead want to change it immediate-
+    // ly, they can call `fontTeX.updateTeX()' to force an update to happen right away.
     fontTeX.updateTeX = styleChangeListener.listener;
 
 
@@ -361,7 +379,7 @@
                     }
 
 
-                    if (!settings.parsehtml) {
+                    if (!settings.parsehtml[0]) {
                         // If the user has configured it so that HTML is NOT parsed, the list of tokens is
                         // added to a document fragment either as elements (for TeX math lists) or text
                         // nodes (for everything outside of the TeX math lists).
@@ -1889,7 +1907,7 @@
                         var mouth = new Mouth(this.string, this.queue),
                             context = 'start',
                             mouthContext = 'pre space',
-                            found = true,
+                            found = false,
                             digits = '';
 
                         while (true) {
@@ -2825,6 +2843,8 @@
                         }];
                     } else var tokens = scopes.last.tokens;
 
+                    if (scopes.last.root) scopes.last.root.invalid = true;
+
                     if (contexts.last == 'superscript') {
                         scopes.pop();
                         for (var i = scopes.last.tokens.length - 1; i >= 0; i--) {
@@ -2946,6 +2966,8 @@
 
                 // At this point, the preamble should have been parsed if there was one. Now, the
                 // cell is ready to be closed to move on to the next one.
+
+                if (e.scopes.last.root) e.scopes.last.root.invalid = true;
 
                 contexts.pop();
                 var tokens = scopes.last.tokens;
@@ -3304,6 +3326,8 @@
             contexts.pop();
             var tokens = scopes.last.tokens;
 
+            if (scopes.last.root) scopes.last.root.invalid = true;
+
             if (contexts.last == 'superscript') {
                 scopes.pop();
                 for (var i = scopes.last.tokens.length - 1; i >= 0; i--) {
@@ -3427,6 +3451,10 @@
                     if (Array.isArray(tokens[i].subscript)) removeIgnored(tokens[i].subscript);
                 } else if (tokens[i].type == 'mathchoice') {
                     removeIgnored(tokens[i].groups);
+                } else if (tokens[i].type == 'box') {
+                    removeIgnored([tokens[i].content]);
+                } else if (tokens[i].type == 'family modifier' && tokens[i].value == 'rad') {
+                    removeIgnored(tokens[i].index);
                 }
             }
         }
@@ -3442,7 +3470,8 @@
                             atomType: tokens[i].value,
                             nucleus: [tokens[i + 1]],
                             superscript: tokens[i + 1].superscript,
-                            subscript: tokens[i + 1].subscript
+                            subscript: tokens[i + 1].subscript,
+                            index: tokens[i].index
                         });
                         tokens[i].nucleus[0].superscript = null;
                         tokens[i].nucleus[0].subscript = null;
@@ -3484,8 +3513,11 @@
                     if (Array.isArray(tokens[i].nucleus)) resolveFamilies(tokens[i].nucleus);
                     if (Array.isArray(tokens[i].superscript)) resolveFamilies(tokens[i].superscript);
                     if (Array.isArray(tokens[i].subscript)) resolveFamilies(tokens[i].subscript);
+                    if (Array.isArray(tokens[i].index)) resolveFamilies(tokens[i].index);
                 } else if (tokens[i].type == 'mathchoice') {
                     resolveFamilies(tokens[i].groups);
+                } else if (tokens[i].type == 'box') {
+                    resolveFamilies([tokens[i].content]);
                 }
             }
         }
@@ -3552,8 +3584,11 @@
                     if (Array.isArray(tokens[i].nucleus)) resolveAccents(tokens[i].nucleus);
                     if (Array.isArray(tokens[i].superscript)) resolveAccents(tokens[i].superscript);
                     if (Array.isArray(tokens[i].subscript)) resolveAccents(tokens[i].subscript);
+                    if (Array.isArray(tokens[i].index)) resolveAccents(tokens[i].index);
                 } else if (tokens[i].type == 'mathchoice') {
                     resolveAccents(tokens[i].groups);
+                } else if (tokens[i].type == 'box') {
+                    resolveAccents([tokens[i].content]);
                 }
             }
         }
@@ -3605,8 +3640,11 @@
                     if (Array.isArray(tokens[i].nucleus)) resolveLimits(tokens[i].nucleus);
                     if (Array.isArray(tokens[i].superscript)) resolveLimits(tokens[i].superscript);
                     if (Array.isArray(tokens[i].subscript)) resolveLimits(tokens[i].subscript);
+                    if (Array.isArray(tokens[i].index)) resolveLimits(tokens[i].index);
                 } else if (tokens[i].type == 'mathchoice') {
                     resolveLimits(tokens[i].groups);
+                } else if (tokens[i].type == 'box') {
+                    resolveLimits([tokens[i].content]);
                 }
             }
         }
@@ -3668,8 +3706,11 @@
                     if (Array.isArray(tokens[i].nucleus)) resolveBoxes(tokens[i].nucleus);
                     if (Array.isArray(tokens[i].superscript)) resolveBoxes(tokens[i].superscript);
                     if (Array.isArray(tokens[i].subscript)) resolveBoxes(tokens[i].subscript);
+                    if (Array.isArray(tokens[i].index)) resolveBoxes(tokens[i].index);
                 } else if (tokens[i].type == 'mathchoice') {
                     resolveBoxes(tokens[i].groups);
+                } else if (tokens[i].type == 'box') {
+                    resolveBoxes([tokens[i].content]);
                 }
             }
         }
@@ -3725,7 +3766,7 @@
                                 i--;
                                 continue;
                             }
-                        } else if (['over','under','rad'].includes(tokens[i].atomType)) {
+                        } else if (tokens[i].nucleus[0].atomType != 7 && ['over','under','rad','accent'].includes(tokens[i].atomType)) {
                             if (!tokens[i].nucleus[0].superscript && !tokens[i].nucleus[0].subscript) {
                                 tokens[i].nucleus = tokens[i].nucleus[0].nucleus;
                             }
@@ -3735,6 +3776,7 @@
                     if (Array.isArray(tokens[i].nucleus)) collapseAtoms(tokens[i].nucleus);
                     if (Array.isArray(tokens[i].superscript)) collapseAtoms(tokens[i].superscript);
                     if (Array.isArray(tokens[i].subscript)) collapseAtoms(tokens[i].subscript);
+                    if (Array.isArray(tokens[i].index)) collapseAtoms(tokens[i].index);
                 } else if (tokens[i].type == 'fraction') {
                     collapseAtoms(tokens[i].numerator);
                     collapseAtoms(tokens[i].denominator);
@@ -3746,6 +3788,8 @@
                     }
                 } else if (tokens[i].type == 'mathchoice') {
                     collapseAtoms(tokens[i].groups);
+                } else if (tokens[i].type == 'box') {
+                    collapseAtoms([tokens[i].content]);
                 }
             }
         }
@@ -3763,15 +3807,20 @@
     }
 
 
-    // This function works the same as `_tokenize' except all the definitions made in-
-    // side it will be made \global. It's almost like setting \globaldefs to 1 except
-    // that definitions inside closed scopes won't be affected. Setting \globadefs to
-    // 1 effectively makes all `\def's to `\gdef'. This function will only set the
-    // `\def's on the outer scope to `\gdef'. A `style' argument is passed here since
-    // no tokens are being returned and thus the style doesn't matter. TeXstring should
-    // NOT be followed up by math shift characters. The whole string should be 100% TeX
-    // that would be able to parse between two math shift tokens.
-    fontTeX._tokenize.global = function global(TeXstring) {
+    // This function works like the regular TeX parser except it can be used to format
+    // TeX. Plain TeX and LaTeX each have their own format that add their own macros
+    // and definitions to TeX's global scope. This function will completely erase ev-
+    // erything on the global scope and replace it with whatever definitions were made
+    // while parsing the argument. The argument should be a regular string of TeX
+    // (without $ delimiters). All definitions made on the outer scope (not enclosed
+    // in its own { ... } group) will be added to the global scope so it can be used
+    // everywhere. It basically adds a \global to everything on the outside of groups.
+    // If you want to make an assignment or definition in the TeX WITHOUT it affecting
+    // the global scope, use _tokenize or enclose the assignment/definition inside a
+    // { ... } group. Primitives and parameter registers are not erased. This function
+    // is what's used to make all the default global macro definitions like \sqrt or
+    // \frac.
+    fontTeX.format = function global(TeXstring) {
         var scope = fontTeX._tokenize(TeXstring + '$', 'inline', true);
 
         data.defs.macros = {};
@@ -3905,6 +3954,7 @@
                 parent.renderedHeight = parent.renderedHeight || 0;
                 parent.renderedDepth = parent.renderedDepth || 0;
                 parent.baseline = fontTeX.fontDimen.baselineHeightOf(family);
+                parent.baselineOffset = 0;
                 parent.appendChild(empty);
                 empty.empty = true;
                 return;
@@ -3946,7 +3996,7 @@
             // tal glues can sometimes stretch, so they aren't EXACTLY like kerns). To make
             // them stretchable would require setting everything inside even more layer of flex
             // boxes and pretty much changing how everything is rendered.
-            var verticalOffsets = {sp: 0, em: 0};
+            var verticalOffset = 0;
 
             for (var i = 0, l = tokens.length; i < l; i++) {
                 var arr = parse1(1, i, l);
@@ -4004,7 +4054,8 @@
                         // If a \nonscript glue is found, and the style is script or scriptscript, the
                         // immediately following glue or kern is removed. Otherwise, if the glue or kern is
                         // in terms of mu units, they are converted to em units by dividing by 18 (18mu =
-                        // 1em).
+                        // 1em). Vertical glues are also converted to vertical kerns instead since they
+                        // can't be stretched in this version.
                         if (token.type == 'glue' && token.isNonScript) {
                             if ((style == 'script' || style == 'scriptscript') && (next.type == 'glue' || next.type == 'vglue' || next.type == 'kern' || next.type == 'vkern')) {
                                 tokens.splice(i + 1, 1);
@@ -4017,6 +4068,10 @@
                                 token.glue.shrink.type == 'infinite dimension' ? token.glue.shrink : new DimenReg(0, ~~(token.glue.shrink.mu.value / 18)));
                         } else if (token.type == 'kern' && token.dimen.type == 'mu dimension') {
                             token.dimen = new DimenReg(0, ~~(token.dimen.mu.value / 18));
+                        } else if (token.type == 'vglue') {
+                            token.type = 'vkern';
+                            token.dimen = token.glue.start;
+                            delete token.glue;
                         }
                         items.push(token);
                         break;
@@ -4256,7 +4311,7 @@
                             // code and why I did it the way I did. If you don't care why it works, just skip
                             // this. It's mostly for me anyway if I ever come back to it and need to know
                             // what's going on.
-                            //
+
                             // Now that the bar has been added, the numerator and denominator need to be added
                             // one on top of the other. They;re placed the same way stacked sub/superscripts
                             // are placed. (If you don't know how those are placed, go to case: 10 of this
@@ -4675,8 +4730,10 @@
 
                             // The whole fraction has been created now. All that's left is to calculate a new
                             // height and depth. Since the fraction is centered
-                            token.div.renderedDepth = denomScaledHeight - fontTeX.fontDimen.heightOf('x', family) / 2 + finalBarWidth / 2 * multiplier;
-                            token.div.renderedHeight = numerScaledHeight + fontTeX.fontDimen.heightOf('x', family) / 2 + finalBarWidth / 2 * multiplier;
+                            token.div.renderedDepth = ((denomScaledHeight - fontTeX.fontDimen.heightOf('x', family) / 2 + finalBarWidth / 2) + (-denom.baseline - denom.baselineOffset + denom.renderedDepth) * (style == 'text' || style == 'script' ? .707106781 : 1)) * multiplier;
+                            token.div.renderedHeight = ((fontTeX.fontDimen.heightOf('x', family) / 2 + finalBarWidth / 2) + (numer.baseline + numer.baselineOffset + numer.renderedHeight) * (style == 'text' || style == 'script' ? .707106781 : 1)) * multiplier;
+                            token.div.baseline = denom.baseline * multiplier * (style == 'text' || style == 'script' ? .707106781 : 1);
+                            token.div.baselineOffset = ((denomScaledHeight - fontTeX.fontDimen.heightOf('x', family) / 2 + finalBarWidth / 2) - denom.baseline * (style == 'text' || style == 'script' ? .70716781 : 1)) * multiplier;
 
                             // Since a fraction doesn't really count as a character, `lastChar' is set to just
                             // a space (a character without an italic correction).
@@ -4695,1192 +4752,1598 @@
                         // This is where all atoms are rendered fully. The inter-atom spacing is added la-
                         // ter, but this is where the atom itself is turned into HTML.
 
-                        // Over, Under, and Rad atoms are handled a little specially. If there's an Over
-                        // atom with a superscript, that superscript should be placed outside the overline,
-                        // not inside it. To get that to happen, the Over's nucleus has to be parsed first
-                        // as its own atom, then the overline goes over it, then the superscript on the
-                        // Over atom is added. To get that to happen, any Over, Under, or Rad atoms with
-                        // a sub/superscript is turned into an Ord atom first with its nucleus as the orig-
-                        // inal atom. The nucleus atom won't have any sub/superscripts. Instead, those will
-                        // be placed on the outside Ord atom. This all happens before anything is altered
-                        // on the original token.
-                        if (['over','under','rad'].includes(token.atomType) && (token.subscript || token.superscript)) {
-                            token = {
-                                type: 'atom',
-                                atomType: 0,
-                                nucleus: [token],
-                                superscript: token.superscript,
-                                subscript: token.subscript,
-                                invalid: token.invalid
-                            };
-                            token.nucleus[0].subscript = token.nucleus[0].superscript = null;
-                        }
-
-                        items.push(token);
-                        atoms.push(token);
-                        token.style = style;
-                        token.div = document.createElement('div');
-                        token.div.style.display = 'inline-block';
-                        token.div.style.whiteSpace = 'nowrap';
-                        token.div.renderedHeight = 0;
-                        token.div.renderedDepth = -.5;
-                        if (token.invalid) {
-                            if (token.nucleus && token.nucleus.type == 'symbol') token.nucleus.invalid = true;
-                            else if (token.nucleus) {
-                                for (var i = 0, l = token.nucleus.length; i < l; i++) {
-                                    token.nucleus[i].invalid = true;
-                                }
-                            }
-                            if (token.superscript) token.superscript[0].invalid = true;
-                            if (token.subscript) token.subscript[0].invalid = true;
-                        }
-
-                        // Most atoms have been collapsed so that "{{{a}}}" will just be recognized as "a".
-                        // Instead of being its own atom and needing to make its own box, it can be recog-
-                        // nized as a single symbol. That means less rendering and Acc atoms can adjust
-                        // their spacing to make the accent appear more "on top" of the symbol. There was
-                        // one exception though: Op atom with their limits set to "display" were kept since
-                        // we didn't yet know if their scripts would be rendered in display mode or inline
-                        // mode. Now that those have been resolved, we can get rid of unnecessary atom
-                        // wrapping around them.
-                        if ([0,1,2,3,4,5,6,'inner'].includes(token.atomType) && token.nucleus && token.nucleus.length == 1
-                            && token.nucleus[0].atomType == 1 && !token.nucleus[0].limits && !token.superscript && !token.subscript) {
-
-                            token.superscript = token.nucleus[0].superscript;
-                            token.subscript = token.nucleus[0].subscript;
-                            token.nucleus = token[0].nucleus.nucleus;
+                        var box = false;
+                        if (token.type == 'box') {
+                            box = token;
+                            token = token.content;
                         }
 
 
-                        // This value determined by what factor an atom needs to be scaled to look the
-                        // appropriate size in the current context. A \displaystyle atom for example being
-                        // rendered in a \scriptscript style box needs to have twice the normal font size
-                        // to appear the same size relative to other \displaystyle atoms.
-                        var multiplier = ({
-                            display:      {display:           1, text:           1, script: 0.707106781, scriptscript:         .5},
-                            text:         {display:           1, text:           1, script: 0.707106781, scriptscript:         .5},
-                            script:       {display: 1.414213562, text: 1.414213562, script:           1, scriptscript: .707106781},
-                            scriptscript: {display:           2, text:           2, script: 1.414213562, scriptscript:          1}
-                        })[flex.displayedStyle][style];
+                        if (token.type == 'atom') {
+                            // This value determined by what factor an atom needs to be scaled to look the
+                            // appropriate size in the current context. A \displaystyle atom for example being
+                            // rendered in a \scriptscript style box needs to have twice the normal font size
+                            // to appear the same size relative to other \displaystyle atoms.
+                            var multiplier = ({
+                                display:      {display:           1, text:           1, script: 0.707106781, scriptscript:         .5},
+                                text:         {display:           1, text:           1, script: 0.707106781, scriptscript:         .5},
+                                script:       {display: 1.414213562, text: 1.414213562, script:           1, scriptscript: .707106781},
+                                scriptscript: {display:           2, text:           2, script: 1.414213562, scriptscript:          1}
+                            })[flex.displayedStyle][style];
 
-
-                        if (token.nucleus && token.nucleus.type == 'symbol') {
-                            if (token.nucleus.code == 10) {
-                                // If the atom's nucleus is a line break, (probably produced by "\\"), it should
-                                // break the flex box by adding a 100% width element. It should also start a new
-                                // child flex box though so that it'll actually be allowed to wrap.
-                                token.isLineBreak = true;
-                                token.div.style.width = '100%';
-                            } else {
-                                // In \normalfont, characters of family 7 (variables) are italicized. By default,
-                                // that includes all lowercase and uppercase Latin letter and lowercase Greek let-
-                                // ters. They also receive an italic correction after them so that they don't just
-                                // form one continuous long word when multiple variables are stringed together. It
-                                // helps because non-variable characters are rendered in normal, upright font. If
-                                // an italicized character appears right next to an upright one, the italicized one
-                                // will sometimes overflow its boundary box and go into the next, upright charac-
-                                // ter. It leads to overlapping, ugly symbols. For fonts that already account for
-                                // that, adding an italic correction still shouldn't be a problem. This behavior is
-                                // taken directly from TeX. TeX's fonts though also assume the character will be
-                                // aligned to the left of its boundary box. A lot of regular fonts don't do that.
-                                // To account for that, the offset of the letter from its boundary box is subtract-
-                                // ed, which ensures the character will be aligned to the left of its boundary box.
-                                // This whole thing is what makes the "f"s look far apart from each other when in
-                                // the normal, math font, but look regularly spaced when in italic font (\it).
-                                token.div.innerHTML = '<div style="white-space:pre;display:inline-block;' + ({
-                                    nm: token.atomType == 7 ? 'font-style:italic;margin:0 ' + fontTeX.fontDimen.italCorrOf(token.nucleus.char, family) + 'em 0 ' + fontTeX.fontDimen.leftOffsetOf(token.nucleus.char, family, 'it') + 'em;' : '',
-                                    rm: '',
-                                    bf: 'font-weight:bold;',
-                                    it: 'font-style:italic;',
-                                    sl: 'font-style:oblique;'
-                                }[font]) + (token.nucleus.invalid ? 'color:red;' : '') + '">' + (token.nucleus.code == 45 ? '\u2212' : token.nucleus.char) + '</div>';
-
-                                var fontStyle = font == 'nm' ? token.atomType == 7 ? 'it' : 'nm' : font;
-                                token.div.renderedHeight = fontTeX.fontDimen.heightOf(token.nucleus.char, family, fontStyle) * multiplier;
-                                token.div.renderedDepth = fontTeX.fontDimen.trueDepthOf(token.nucleus.char, family, fontStyle) * multiplier;
-                                token.div.baseline = fontTeX.fontDimen.baselineHeightOf(family) * multiplier;
+                            // Over, Under, and Rad atoms are handled a little specially. If there's an Over
+                            // atom with a superscript, that superscript should be placed outside the overline,
+                            // not inside it. To get that to happen, the Over's nucleus has to be parsed first
+                            // as its own atom, then the overline goes over it, then the superscript on the
+                            // Over atom is added. To get that to happen, any Over, Under, or Rad atoms with
+                            // a sub/superscript is turned into an Ord atom first with its nucleus as the orig-
+                            // inal atom. The nucleus atom won't have any sub/superscripts. Instead, those will
+                            // be placed on the outside Ord atom. This all happens before anything is altered
+                            // on the original token. Also, a radical atom is rendered best when `multiplier'
+                            // is 1 (if it's not, the whole thing looks the wrong size). If `multiplier' is not
+                            // 1 and the atom is a Rad atom, the whole atom is stuffed inside its own atom nu-
+                            // cleus, where 'multiplier` is 1. If the 'multiplier` is already 1, the Rad atom
+                            // is rendered normally.
+                            if (['over','under','rad'].includes(token.atomType) && (token.subscript || token.superscript) || token.atomType == 'rad' && multiplier != 1) {
+                                token = {
+                                    type: 'atom',
+                                    atomType: 0,
+                                    nucleus: [token],
+                                    superscript: token.superscript,
+                                    subscript: token.subscript,
+                                    invalid: token.invalid
+                                };
+                                token.nucleus[0].subscript = token.nucleus[0].superscript = null;
                             }
-                            lastChar = token.nucleus.char;
-                        } else if (Array.isArray(token.nucleus)) {
-                            lastChar = newBox(token.nucleus, style, cramped || token.atomType == 'over' || token.atomType == 'rad', font, token.div) || lastChar;
-                            token.div.renderedHeight *= multiplier;
-                            token.div.renderedDepth *= multiplier;
-                            if (token.div.firstElementChild.empty && !token.superscript && !token.subscript && !token.delimited && !['rad', 'acc', 'over', 'under'].includes(token.atomType)) {
-                                token.div.empty = true;
+
+                            items.push(token);
+                            atoms.push(token);
+                            token.style = style;
+                            token.div = document.createElement('div');
+                            token.div.style.display = 'inline-block';
+                            token.div.style.whiteSpace = 'nowrap';
+                            token.div.renderedHeight = 0;
+                            token.div.renderedDepth = -.5;
+                            token.div.baselineOffset = 0;
+                            if (token.invalid) {
+                                if (token.nucleus && token.nucleus.type == 'symbol') token.nucleus.invalid = true;
+                                else if (token.nucleus) {
+                                    for (var i = 0, l = token.nucleus.length; i < l; i++) {
+                                        token.nucleus[i].invalid = true;
+                                    }
+                                }
+                                if (token.superscript) token.superscript[0].invalid = true;
+                                if (token.subscript) token.subscript[0].invalid = true;
                             }
-                        }
 
-                        // Now a font-size needs to be set on the element to show differences between
-                        // styles (e.g. if a \displaystyle was found inside a \scriptstyle group).
-                        token.div.style.fontSize = multiplier + 'em';
+                            // Most atoms have been collapsed so that "{{{a}}}" will just be recognized as "a".
+                            // Instead of being its own atom and needing to make its own box, it can be recog-
+                            // nized as a single symbol. That means less rendering and Acc atoms can adjust
+                            // their spacing to make the accent appear more "on top" of the symbol. There was
+                            // one exception though: Op atom with their limits set to "display" were kept since
+                            // we didn't yet know if their scripts would be rendered in display mode or inline
+                            // mode. Now that those have been resolved, we can get rid of unnecessary atom
+                            // wrapping around them.
+                            if ([0,1,2,3,4,5,6,'inner'].includes(token.atomType) && token.nucleus && token.nucleus.length == 1
+                                && token.nucleus[0].atomType == 1 && !token.nucleus[0].limits && !token.superscript && !token.subscript) {
 
-                        // Now that the nucleus of the atom is done, only the sub/superscripts need to be
-                        // created. After that, the atom is done being rendered. Here is where the scripts
-                        // are made. Op atoms with limits displayed are special cases though. Their script
-                        // are placed above and below their atoms instead of to the right like normal
-                        // scripts. They are handled in the else if block following this if block.
-                        if ((token.superscript || token.subscript) && (token.atomType != 1 || !token.limits)) {
-                            if (token.subscript && !token.superscript) {
-                                // If the atom has a subscript but no superscript, the subscript is rendered a lit-
-                                // tle higher than normal.
-
-                                // `heightOffset' is used to offset the vertical spacing of any lines adjacent to
-                                // the equation.
-                                var sub = document.createElement('div'),
-                                    heightOffset = document.createElement('div');
-                                sub.style.display = 'inline-block';
-                                sub.style.verticalAlign = 'text-bottom';
-                                sub.style.position = 'relative';
-                                heightOffset.style.verticalAlign = 'text-top';
-                                heightOffset.innerText = '\u00a0';
-                                heightOffset.style.display = 'inline-block';
-                                heightOffset.style.width = 0;
-                                newBox(token.subscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', true, font, sub);
-
-                                sub.style.fontSize = '50px';
-                                container.appendChild(sub);
-                                var height = sub.getBoundingClientRect().height / 50;
-                                container.removeChild(sub);
-
-                                // If the style isn't already at scriptscript, then it'll be rendered at a smaller
-                                // font. There's a lot of numbers below with adding and subtracting and stuff, but
-                                // basically, the subscript is moved up or down so that its baseline matches the
-                                // baseline of the nucleus (since vertical-align: text-bottom moves it depending on
-                                // the font size). Once the baselines are lined up, the script is moved down so
-                                // that either it's top is at 4/5 of the parent's ex height, or its bottom is 1/5
-                                // below the nucleus's bottom, which ever is lower. That means the subscript will
-                                // always be at least 4/5 below the ex height, but will also be moved down if the
-                                // nucleus is extra tall. The 4/5 number was taken directly from TeX. TeX gets the
-                                // 1/5 from fonts' parameters and can vary depending on the font. 1/5 just seems to
-                                // be around the right area to fit most fonts.
-                                if (style == 'scriptscript') {
-                                    sub.style.fontSize = '';
-                                    sub.style.top = Math.max(sub.baseline, sub.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier + .2, sub.renderedHeight - fontTeX.fontDimen.heightOf('x', family)) - height + 'em';
-                                    heightOffset.style.paddingBottom = Math.max(sub.baseline, sub.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier + .2, sub.renderedHeight - fontTeX.fontDimen.heightOf('x', family)) - height + 'em';
-                                    token.div.renderedDepth = Math.max(token.div.renderedDepth, (sub.renderedDepth + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier + .2, sub.renderedHeight - fontTeX.fontDimen.heightOf('x', family))) * multiplier);
-                                } else {
-                                    sub.style.fontSize = '.707106781em';
-                                    sub.style.top = Math.max(sub.baseline, sub.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) / .707106781 + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier / .707106781 + .2, sub.renderedHeight - fontTeX.fontDimen.heightOf('x', family)) - height + 'em';
-                                    heightOffset.style.paddingBottom = (Math.max(sub.baseline, sub.renderedDepth) * .707106781 - fontTeX.fontDimen.baselineHeightOf(family) + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier / .707106781 + .2, sub.renderedHeight - fontTeX.fontDimen.heightOf('x', family)) * .707106781) + 'em';
-                                    token.div.renderedDepth = Math.max(token.div.renderedDepth, (sub.renderedDepth * .707106781 + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier / .707106781 + .2, sub.renderedHeight - fontTeX.fontDimen.heightOf('x', family)) * .707106781) * multiplier);
-                                }
-                                // If the subscript is taller than the nucleus (it can happen if there's like a
-                                // fraction or a table in the script but not in the nucleus of if the script
-                                // itself also has scripts), it can unintentionally offset the height of the line.
-                                // To prevent that, its height is set to 0.
-                                sub.style.height = 0;
-                                token.div.appendChild(sub);
-                                token.div.insertBefore(heightOffset, sub);
-                            } else if (token.superscript && !token.subscript) {
-                                // Superscripts are rendered much the same way as subscripts. Instead of getting a
-                                // `heightOffset' element, they get a padding-top that displaces elements around it
-                                // instead.
-                                var sup = document.createElement('div');
-                                newBox(token.superscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped, font, sup);
-                                sup.style.display = 'inline-block';
-                                sup.style.verticalAlign = 'text-bottom';
-                                sup.style.position = 'relative';
-
-                                // The math here is almost the same as with subscripts. The script is moved to the
-                                // baseline first. Then it's shift up so that either the bottom is at 7/10 (3/5
-                                // when in "cramped" mode) of the ex height, or the top is 1/5 (1/10 in "cramped"
-                                // mode) above the height of the nucleus. It's always at least 3/5 above the ex
-                                // height but can move up with the nucleus if the nucleus is particularly tall.
-                                // "Cramped" mode is when the `cramped' argument is true and it basically just sig-
-                                // nals that exponents need to be rendered lower.
-                                if (style == 'scriptscript') {
-                                    sup.style.top = Math.max(sup.baseline, sup.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) - Math.max(token.div.renderedHeight / multiplier + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family)) + 'em';
-                                    sup.style.paddingTop = -Math.max(sup.baseline, sup.renderedDepth) + fontTeX.fontDimen.baselineHeightOf(family) + Math.max(token.div.renderedHeight / multiplier + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family)) + 'em';
-                                    token.div.renderedHeight = Math.max(token.div.renderedHeight, (sup.renderedHeight + Math.max(token.div.renderedHeight / multiplier + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family))) * multiplier);
-                                } else {
-                                    sup.style.fontSize = '.707106781em';
-                                    sup.style.top = Math.max(sup.baseline, sup.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) / .707106781 - Math.max(token.div.renderedHeight / multiplier / .707106781 + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family)) + 'em';
-                                    sup.style.paddingTop = -Math.max(sup.baseline, sup.renderedDepth) + fontTeX.fontDimen.baselineHeightOf(family) / .707106781 + Math.max(token.div.renderedHeight / multiplier / .707106781 + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family)) + 'em';
-                                    token.div.renderedHeight = Math.max(token.div.renderedHeight, (sup.renderedHeight + Math.max(token.div.renderedHeight / multiplier / .707106781 + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family))) * .707106781 * multiplier);
-                                }
-                                token.div.appendChild(sup);
-                            } else if (token.subscript && token.superscript) {
-                                // If both a sub/superscript are found, the thinner is placed first with width: 0.
-                                // Then the thicker one is placed with its normal width.
-
-                                // First create the subscript without any styles applied yet. All the dimensions
-                                // are also gotten from here.
-                                var sub = document.createElement('div'),
-                                    heightOffset = document.createElement('div');
-                                sub.style.display = 'inline-block';
-                                heightOffset.style.verticalAlign = 'text-top';
-                                heightOffset.innerText = '\u00a0';
-                                heightOffset.style.display = 'inline-block';
-                                heightOffset.style.width = 0;
-                                newBox(token.subscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', true, font, sub);
-                                sub.style.fontSize = '50px';
-                                container.appendChild(sub);
-                                var subDimens = sub.getBoundingClientRect();
-                                container.removeChild(sub);
-
-                                // Do the same for the superscript.
-                                var sup = document.createElement('div');
-                                sup.style.display = 'inline-block';
-                                newBox(token.superscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped, font, sup);
-                                sup.style.fontSize = '50px';
-                                container.appendChild(sup);
-                                var supDimens = sup.getBoundingClientRect();
-                                container.removeChild(sup);
-
-                                // Assign variables to keep track of which of the scripts is thinner.
-                                var thinner = supDimens.width > subDimens.width ? sub : sup,
-                                    thicker = supDimens.width > subDimens.width ? sup : sub,
-                                    height = supDimens.height / 50,
-                                    depth = subDimens.height / 50;
-
-                                // Now, all the styles are added like normal.
-                                sub.style.verticalAlign = 'text-bottom';
-                                sup.style.verticalAlign = 'text-bottom';
-                                sup.style.position = sub.style.position = 'relative';
-                                if (style == 'scriptscript') {
-                                    sub.style.fontSize = sup.style.fontSize = '';
-
-                                    sup.style.top = Math.max(sup.baseline, sup.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) - Math.max(token.div.renderedHeight / multiplier + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family)) + 'em';
-                                    sup.style.paddingTop = -Math.max(sup.baseline, sup.renderedDepth) + fontTeX.fontDimen.baselineHeightOf(family) + Math.max(token.div.renderedHeight / multiplier + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family)) + 'em';
-                                    token.div.renderedHeight = Math.max(token.div.renderedHeight, (sup.renderedHeight + Math.max(token.div.renderedHeight / multiplier + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family))) * multiplier);
-
-                                    sub.style.top = Math.max(sub.baseline, sub.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier + .2, sub.renderedHeight - .8 * fontTeX.fontDimen.heightOf('x', family)) - depth + 'em';
-                                    heightOffset.style.paddingBottom = Math.max(sub.baseline, sub.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier + .2, sub.renderedHeight - .8 * fontTeX.fontDimen.heightOf('x', family)) - height + 'em';
-                                    token.div.renderedDepth = Math.max(token.div.renderedDepth, (sub.renderedDepth + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier + .2, sub.renderedHeight - .8 * fontTeX.fontDimen.heightOf('x', family))) * multiplier);
-                                } else {
-                                    sub.style.fontSize = sup.style.fontSize = '.707106781em';
-
-                                    sup.style.top = Math.max(sup.baseline, sup.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) / .707106781 - Math.max(token.div.renderedHeight / multiplier / .707106781 + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family)) + 'em';
-                                    sup.style.paddingTop = -Math.max(sup.baseline, sup.renderedDepth) + fontTeX.fontDimen.baselineHeightOf(family) / .707106781 + Math.max(token.div.renderedHeight / multiplier / .707106781 + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family)) + 'em';
-                                    token.div.renderedHeight = Math.max(token.div.renderedHeight, (sup.renderedHeight + Math.max(token.div.renderedHeight / multiplier / .707106781 + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family))) * .707106781 * multiplier);
-
-                                    sub.style.top = Math.max(sub.baseline, sub.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) / .707106781 + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier / .707106781 + .2, sub.renderedHeight - .8 * fontTeX.fontDimen.heightOf('x', family)) - depth + 'em';
-                                    heightOffset.style.paddingBottom = (Math.max(sub.baseline, sub.renderedDepth) * .707106781 - fontTeX.fontDimen.baselineHeightOf(family) + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier / .707106781 + .2, sub.renderedHeight - .8 * fontTeX.fontDimen.heightOf('x', family)) * .707106781) + 'em';
-                                    token.div.renderedDepth = Math.max(token.div.renderedDepth, (sub.renderedDepth * .707106781 + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier / .707106781 + .2, sub.renderedHeight - .8 * fontTeX.fontDimen.heightOf('x', family)) * .707106781) * multiplier);
-                                }
-
-                                sub.style.height = 0;
-                                thinner.style.width = 0;
-
-                                token.div.appendChild(heightOffset);
-                                token.div.appendChild(thinner);
-                                token.div.appendChild(thicker);
+                                token.superscript = token.nucleus[0].superscript;
+                                token.subscript = token.nucleus[0].subscript;
+                                token.nucleus = token[0].nucleus.nucleus;
                             }
-                        } else if ((token.superscript || token.subscript) && (token.atomType == 1 && token.limits)) {
-                            // This is where Op atoms' scripts are handled. They are rendered in the same font
-                            // size as normal scripts. The only difference is their position. They're kind of
-                            // positioned like fractions in that the thinner of the three (nucleus, subscript,
-                            // and superscript) is centered. That applies to the second thinnest as well.
 
-                            var nucleusElem = token.div.firstElementChild;
-                            container.appendChild(token.div);
-                            var nucleusWidth = token.div.getBoundingClientRect().width;
-                            container.removeChild(token.div);
 
-                            if (token.subscript && !token.superscript) {
-                                // If there's only a subscript, we only have to worry about the nucleus and the one
-                                // script. First, the entire subscript is rendered inside its own box. After that,
-                                // the same steps are taken that happen for fractions: the thinner of the nucleus
-                                // and subscripts are placed inside their own special elements to get them to ren-
-                                // der centered and in the right spot with the right spacing. Look at `case 8'
-                                // (where fractions are created) for comments.
-
-                                token.div.renderedDepth = Math.max(token.div.renderedDepth, 0)
-
-                                var sub = document.createElement('div'),
-                                    heightOffset = document.createElement('div');
-                                sub.style.display = 'inline-block';
-                                sub.style.verticalAlign = 'text-bottom';
-                                sub.style.position = 'relative';
-                                heightOffset.innerText = '\u00A0';
-                                heightOffset.style.verticalAlign = 'text-top';
-                                heightOffset.style.display = 'inline-block';
-                                heightOffset.style.width = 0;
-                                newBox(token.subscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', true, font, sub);
-
-                                sub.style.fontSize = style == 'scriptscript' ? token.div.style.fontSize : 'calc(' + token.div.style.fontSize + ' * .707106781)';
-                                container.appendChild(sub);
-                                var width = sub.getBoundingClientRect().width;
-                                sub.style.fontSize = '50px';
-                                var height = sub.getBoundingClientRect().height / 50;
-                                container.removeChild(sub);
-
-                                if (style == 'scriptscript') {
-                                    sub.style.fontSize = '';
-                                    // The baselineHeight of a font family is how much space is between the baseline
-                                    // and the bottom of the character's box. Taking away a character's depth from that
-                                    // amount leaves only how much empty space there is below a character (a "y" for
-                                    // example has less empty space below it than an "a" because the descender from the
-                                    // "y" gives "y" a greater depth). This is what lets a subscript appear higher on
-                                    // an "a" than on a "y" (try "\mathop y_1 \mathop a_1" to see the difference on the
-                                    // "1").
-                                    sub.style.top = -fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth + 'em';
-                                    sub.style.paddingBottom = -height + fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth + 'em';
-                                    heightOffset.style.paddingBottom = height - Math.max(fontTeX.fontDimen.baselineHeightOf(family), token.div.renderedDepth) + token.div.renderedDepth + 'em';
+                            if (token.nucleus && token.nucleus.type == 'symbol') {
+                                if (token.nucleus.code == 10) {
+                                    // If the atom's nucleus is a line break, (probably produced by "\\"), it should
+                                    // break the flex box by adding a 100% width element. It should also start a new
+                                    // child flex box though so that it'll actually be allowed to wrap.
+                                    token.isLineBreak = true;
+                                    token.div.style.width = '100%';
                                 } else {
-                                    sub.style.fontSize = '.707106781em';
-                                    sub.style.top = (fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth) / -.707106781 + 'em';
-                                    sub.style.paddingBottom = -height - (fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth) / -.707106781 + 'em';
-                                    heightOffset.style.paddingBottom = height * .707106781 - fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedDepth + 'em';
+                                    // In \normalfont, characters of family 7 (variables) are italicized. By default,
+                                    // that includes all lowercase and uppercase Latin letter and lowercase Greek let-
+                                    // ters. They also receive an italic correction after them so that they don't just
+                                    // form one continuous long word when multiple variables are stringed together. It
+                                    // helps because non-variable characters are rendered in normal, upright font. If
+                                    // an italicized character appears right next to an upright one, the italicized one
+                                    // will sometimes overflow its boundary box and go into the next, upright charac-
+                                    // ter. It leads to overlapping, ugly symbols. For fonts that already account for
+                                    // that, adding an italic correction still shouldn't be a problem. This behavior is
+                                    // taken directly from TeX. TeX's fonts though also assume the character will be
+                                    // aligned to the left of its boundary box. A lot of regular fonts don't do that.
+                                    // To account for that, the offset of the letter from its boundary box is subtract-
+                                    // ed, which ensures the character will be aligned to the left of its boundary box.
+                                    // This whole thing is what makes the "f"s look far apart from each other when in
+                                    // the normal, math font, but look regularly spaced when in italic font (\it).
+                                    token.div.innerHTML = '<div style="white-space:pre;display:inline-block;' + (token.nucleus.invalid ? 'color:red;' : '') + ({
+                                        nm: token.atomType == 7 ? 'font-style:italic"><div style="display:inline-block;margin:0 ' + fontTeX.fontDimen.italCorrOf(token.nucleus.char, family) + 'em 0 ' + fontTeX.fontDimen.leftOffsetOf(token.nucleus.char, family, 'it') + 'em' : '',
+                                        rm: '',
+                                        bf: 'font-weight:bold;',
+                                        it: 'font-style:italic;',
+                                        sl: 'font-style:oblique;'
+                                    }[font]) + '">' + (token.nucleus.code == 45 ? '\u2212' : token.nucleus.char) + '</div>' + (token.atomType == 7 ? '</div>' : '');
+
+                                    var fontStyle = font == 'nm' ? token.atomType == 7 ? 'it' : 'nm' : font;
+                                    token.div.renderedHeight = fontTeX.fontDimen.heightOf(token.nucleus.char, family, fontStyle) * multiplier;
+                                    token.div.renderedDepth = fontTeX.fontDimen.trueDepthOf(token.nucleus.char, family, fontStyle) * multiplier;
+                                    token.div.baseline = fontTeX.fontDimen.baselineHeightOf(family) * multiplier;
                                 }
-
-                                sub.style.height = 0;
-
-                                // This is where the nucleus and subscript are positioned depending on their width.
-                                if (width < nucleusWidth) {
-                                    var thinner = sub.firstElementChild, thicker = nucleusElem;
-                                    token.div.insertBefore(sub, nucleusElem);
-                                    sub.style.width = 0;
-                                } else {
-                                    var thinner = nucleusElem, thicker = sub.firstElementChild;
-                                    token.div.appendChild(sub);
+                                lastChar = token.nucleus.char;
+                            } else if (Array.isArray(token.nucleus)) {
+                                lastChar = newBox(token.nucleus, style, cramped || token.atomType == 'over' || token.atomType == 'rad', font, token.div) || lastChar;
+                                token.div.renderedHeight *= multiplier;
+                                token.div.renderedDepth *= multiplier;
+                                token.div.baseline *= multiplier;
+                                token.div.baselineOffset *= multiplier;
+                                if (token.div.firstElementChild.empty && !token.superscript && !token.subscript && !token.delimited && !['rad', 'acc', 'over', 'under'].includes(token.atomType)) {
+                                    token.div.empty = true;
                                 }
-
-                                var thinContainer = document.createElement('div');
-                                thinContainer.style.display = 'inline-block';
-                                thinContainer.style.position = 'relative';
-                                var heightContainer = document.createElement('div');
-                                heightContainer.style.display = 'inline-block';
-                                heightContainer.style.width = 0;
-                                heightContainer.style.visibility = 'hidden';
-                                heightContainer.style.webkitUserSelect =
-                                    heightContainer.style.mozUserSelect =
-                                    heightContainer.style.msUserSelect =
-                                    heightContainer.style.userSelect = 'none';
-                                heightContainer.appendChild(noWrap(thinner.cloneNode(true)));
-                                thinContainer.appendChild(heightContainer);
-                                var widthCont = document.createElement('div');
-                                widthCont.style.position = 'absolute';
-                                widthCont.style.left = widthCont.style.right = 0;
-                                widthCont.style.textAlign = 'center';
-                                widthCont.style.display = 'inline-block';
-                                widthCont.appendChild(thinner);
-                                thinContainer.appendChild(widthCont);
-                                var clone = noWrap(thicker.cloneNode(true));
-                                clone.style.visibility = 'hidden';
-                                clone.style.webkitUserSelect =
-                                    clone.style.mozUserSelect =
-                                    clone.style.msUserSelect =
-                                    clone.style.userSelect = 'none';
-                                clone.style.fontSize = style == 'scriptscript' ? '' : width < nucleusWidth ? '1.414213562em' : '.707106781em';
-                                clone.style.height = 0;
-                                clone.style.verticalAlign = 'top';
-                                thinContainer.appendChild(clone);
-                                if (width < nucleusWidth) {
-                                    sub.appendChild(thinContainer);
-                                } else {
-                                    var nucleusPar = document.createElement('div');
-                                    nucleusPar.style.display = 'inline-block';
-                                    nucleusPar.style.width = 0;
-                                    nucleusPar.appendChild(thinContainer);
-                                    token.div.insertBefore(nucleusPar, sub);
-                                }
-                                token.div.insertBefore(heightOffset, token.div.firstElementChild);
-
-                                // Since the subscript in its entirety is being added on right under the atom, all
-                                // of its height and depth are adding on to the depth of the atom.
-                                token.div.renderedDepth += height * (style == 'scriptscript' ? 1 : .707106781) * multiplier;
-                            } else if (token.superscript && !token.subscript) {
-                                // This is the superscript version of the above.
-                                var sup = document.createElement('div');
-                                sup.style.display = 'inline-block';
-                                sup.style.verticalAlign = 'text-bottom';
-                                newBox(token.superscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped, font, sup);
-
-                                sup.style.fontSize = style == 'scriptscript' ? token.div.style.fontSize : 'calc(' + token.div.style.fontSize + ' * .707106781)';
-                                container.appendChild(sup);
-                                var width = sup.getBoundingClientRect().width;
-                                sup.style.fontSize = '50px';
-                                var height = sup.getBoundingClientRect().height / 50;
-                                container.removeChild(sup);
-
-                                if (style == 'scriptscript') {
-                                    sup.style.fontSize = '';
-                                    sup.style.marginBottom = token.div.renderedHeight + token.div.renderedDepth + .1 + 'em';
-                                } else {
-                                    sup.style.fontSize = '.707106781em';
-                                    sup.style.marginBottom = 'calc(' + (fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedHeight) + 'em / .707106781)';
-                                }
-
-                                if (width < nucleusWidth) {
-                                    var thinner = sup.firstElementChild, thicker = nucleusElem;
-                                    token.div.insertBefore(sup, nucleusElem);
-                                    sup.style.width = 0;
-                                } else {
-                                    var thinner = nucleusElem, thicker = sup.firstElementChild;
-                                    token.div.appendChild(sup);
-                                }
-
-                                var thinContainer = document.createElement('div');
-                                thinContainer.style.display = 'inline-block';
-                                thinContainer.style.position = 'relative';
-                                var heightContainer = document.createElement('div');
-                                heightContainer.style.display = 'inline-block';
-                                heightContainer.style.width = 0;
-                                heightContainer.style.visibility = 'hidden';
-                                heightContainer.style.webkitUserSelect =
-                                    heightContainer.style.mozUserSelect =
-                                    heightContainer.style.msUserSelect =
-                                    heightContainer.style.userSelect = 'none';
-                                heightContainer.appendChild(noWrap(thinner.cloneNode(true)));
-                                thinContainer.appendChild(heightContainer);
-                                var widthCont = document.createElement('div');
-                                widthCont.style.position = 'absolute';
-                                widthCont.style.left = widthCont.style.right = 0;
-                                widthCont.style.textAlign = 'center';
-                                widthCont.style.display = 'inline-block';
-                                widthCont.appendChild(thinner);
-                                thinContainer.appendChild(widthCont);
-                                var clone = noWrap(thicker.cloneNode(true));
-                                clone.style.visibility = 'hidden';
-                                clone.style.webkitUserSelect =
-                                    clone.style.mozUserSelect =
-                                    clone.style.msUserSelect =
-                                    clone.style.userSelect = 'none';
-                                clone.style.fontSize = style == 'scriptscript' ? '' : width < nucleusWidth ? '1.414213562em' : '.707106781em';
-                                clone.style.height = 0;
-                                clone.style.verticalAlign = 'top';
-                                thinContainer.appendChild(clone);
-                                if (width < nucleusWidth) {
-                                    sup.appendChild(thinContainer);
-                                } else {
-                                    var nucleusPar = document.createElement('div');
-                                    nucleusPar.style.display = 'inline-block';
-                                    nucleusPar.style.width = 0;
-                                    nucleusPar.appendChild(thinContainer);
-                                    token.div.insertBefore(nucleusPar, sup);
-                                }
-
-                                token.div.renderedHeight += height * (style == 'scriptscript' ? 1 : .707106781) * multiplier;
-                            } else if (token.superscript && token.subscript) {
-                                // Both a superscript and subscript are rendered the same way they are separately.
-                                // The only difference is that three things' widths are compared instead of just
-                                // two.
-
-                                token.div.renderedDepth = Math.max(token.div.renderedDepth, 0);
-
-                                var sub = document.createElement('div');
-                                sub.style.display = 'inline-block';
-                                sub.style.verticalAlign = 'text-bottom';
-                                sub.style.position = 'relative';
-                                newBox(token.subscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', true, font, sub);
-
-                                sub.style.fontSize = style == 'scriptscript' ? token.div.style.fontSize : 'calc(' + token.div.style.fontSize + ' * .707106781)';
-                                container.appendChild(sub);
-                                var subWidth = sub.getBoundingClientRect().width;
-                                sub.style.fontSize = '50px';
-                                var subHeight = sub.getBoundingClientRect().height / 50;
-                                container.removeChild(sub);
-
-                                var sup = document.createElement('div');
-                                sup.style.display = 'inline-block';
-                                sup.style.verticalAlign = 'text-bottom';
-                                sup.style.position = 'relative';
-                                newBox(token.superscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped, font, sup);
-
-                                sup.style.fontSize = style == 'scriptscript' ? token.div.style.fontSize : 'calc(' + token.div.style.fontSize + ' * .707106781)';
-                                container.appendChild(sup);
-                                var supWidth = sup.getBoundingClientRect().width;
-                                sup.style.fontSize = '50px';
-                                var supHeight = sup.getBoundingClientRect().height / 50;
-                                container.removeChild(sup);
-
-                                var heightOffset = document.createElement('div');
-                                heightOffset.innerText = '\u00A0';
-                                heightOffset.style.verticalAlign = 'text-top';
-                                heightOffset.style.display = 'inline-block';
-                                heightOffset.style.width = 0;
-
-                                if (style == 'scriptscript') {
-                                    sub.style.fontSize = sup.style.fontSize = '';
-                                    sub.style.top = -fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth + 'em';
-                                    sub.style.paddingBottom = -subHeight + fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth + 'em';
-                                    heightOffset.style.paddingBottom = subHeight - fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedDepth + 'em';
-                                    sup.style.marginBottom = fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedHeight + 'em';
-                                } else {
-                                    sub.style.fontSize = sup.style.fontSize = '.707106781em';
-                                    sub.style.top = (fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth) / -.707106781 + 'em';
-                                    sub.style.paddingBottom = -subHeight - (fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedDepth) / -.707106781 + 'em';
-                                    heightOffset.style.paddingBottom = subHeight * .707106781 - fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedDepth + 'em';
-                                    sup.style.marginBottom = (fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedHeight) / .707106781 + 'em';
-                                }
-                                sub.style.height = 0;
-
-                                if (subWidth <= supWidth && nucleusWidth <= supWidth) {
-                                    token.div.insertBefore(sub, nucleusElem);
-                                    token.div.appendChild(sup);
-                                    sub.style.width = nucleusElem.style.width = 0;
-
-                                    var subThinContainer = document.createElement('div'),
-                                        nucThinContainer = document.createElement('div');
-                                    subThinContainer.style.display = nucThinContainer.style.display = 'inline-block';
-                                    subThinContainer.style.position = nucThinContainer.style.position = 'relative';
-                                    var subHeightContainer = document.createElement('div'),
-                                        nucHeightContainer = document.createElement('div');
-                                    subHeightContainer.style.display = nucHeightContainer.style.display = 'inline-block';
-                                    subHeightContainer.style.width = nucHeightContainer.style.width = 0;
-                                    subHeightContainer.style.visibility = nucHeightContainer.style.visibility = 'hidden';
-                                    subHeightContainer.style.webkitUserSelect =
-                                        subHeightContainer.style.mozUserSelect =
-                                        subHeightContainer.style.msUserSelect =
-                                        subHeightContainer.style.userSelect =
-                                        nucHeightContainer.style.webkitUserSelect =
-                                        nucHeightContainer.style.mozUserSelect =
-                                        nucHeightContainer.style.msUserSelect =
-                                        nucHeightContainer.style.userSelect = 'none';
-                                    subHeightContainer.appendChild(noWrap(sub.firstElementChild.cloneNode(true)));
-                                    nucHeightContainer.appendChild(noWrap(nucleusElem.cloneNode(true)));
-                                    subThinContainer.appendChild(subHeightContainer);
-                                    nucThinContainer.appendChild(nucHeightContainer);
-                                    var subWidthCont = document.createElement('div'),
-                                        nucWidthCont = document.createElement('div');
-                                    subWidthCont.style.position = nucWidthCont.style.position = 'absolute';
-                                    subWidthCont.style.left = subWidthCont.style.right = 0;
-                                    nucWidthCont.style.left = nucWidthCont.style.right = 0;
-                                    subWidthCont.style.textAlign = nucWidthCont.style.textAlign = 'center';
-                                    subWidthCont.style.display = nucWidthCont.style.display = 'inline-block';
-                                    subWidthCont.appendChild(sub.firstElementChild);
-                                    nucWidthCont.appendChild(nucleusElem);
-                                    subThinContainer.appendChild(subWidthCont);
-                                    nucThinContainer.appendChild(nucWidthCont);
-                                    var subClone = noWrap(sup.firstElementChild.cloneNode(true)),
-                                        nucClone = subClone.cloneNode(true);
-                                    subClone.style.visibility = nucClone.style.visibility = 'hidden';
-                                    subClone.style.webkitUserSelect =
-                                        subClone.style.mozUserSelect =
-                                        subClone.style.msUserSelect =
-                                        subClone.style.userSelect =
-                                        nucClone.style.webkitUserSelect =
-                                        nucClone.style.mozUserSelect =
-                                        nucClone.style.msUserSelect =
-                                        nucClone.style.userSelect = 'none';
-                                    subClone.style.fontSize = '';
-                                    nucClone.style.fontSize = style == 'scriptscript' ? '' : '.707106781em';
-                                    subClone.style.height = nucClone.style.height = 0;
-                                    subClone.style.verticalAlign = nucClone.style.verticalAlign = 'top';
-                                    subThinContainer.appendChild(subClone);
-                                    nucThinContainer.appendChild(nucClone);
-                                    sub.appendChild(subThinContainer);
-                                    var nucleusPar = document.createElement('div');
-                                    nucleusPar.style.display = 'inline-block';
-                                    nucleusPar.style.width = 0;
-                                    nucleusPar.appendChild(nucThinContainer);
-                                    token.div.insertBefore(nucleusPar, sup);
-                                } else if (subWidth <= nucleusWidth && supWidth <= nucleusWidth) {
-                                    token.div.insertBefore(sub, nucleusElem);
-                                    token.div.insertBefore(sup, nucleusElem);
-                                    sub.style.width = sup.style.width = 0;
-
-                                    var subThinContainer = document.createElement('div'),
-                                        supThinContainer = document.createElement('div');
-                                    subThinContainer.style.display = supThinContainer.style.display = 'inline-block';
-                                    subThinContainer.style.position = supThinContainer.style.position = 'relative';
-                                    var subHeightContainer = document.createElement('div'),
-                                        supHeightContainer = document.createElement('div');
-                                    subHeightContainer.style.display = supHeightContainer.style.display = 'inline-block';
-                                    subHeightContainer.style.width = supHeightContainer.style.width = 0;
-                                    subHeightContainer.style.visibility = supHeightContainer.style.visibility = 'hidden';
-                                    subHeightContainer.style.webkitUserSelect =
-                                        subHeightContainer.style.mozUserSelect =
-                                        subHeightContainer.style.msUserSelect =
-                                        subHeightContainer.style.userSelect =
-                                        supHeightContainer.style.webkitUserSelect =
-                                        supHeightContainer.style.mozUserSelect =
-                                        supHeightContainer.style.msUserSelect =
-                                        supHeightContainer.style.userSelect = 'none';
-                                    subHeightContainer.appendChild(noWrap(sub.firstElementChild.cloneNode(true)));
-                                    supHeightContainer.appendChild(noWrap(sup.firstElementChild.cloneNode(true)));
-                                    subThinContainer.appendChild(subHeightContainer);
-                                    supThinContainer.appendChild(supHeightContainer);
-                                    var subWidthCont = document.createElement('div'),
-                                        supWidthCont = document.createElement('div');
-                                    subWidthCont.style.position = supWidthCont.style.position = 'absolute';
-                                    subWidthCont.style.left = subWidthCont.style.right = 0;
-                                    supWidthCont.style.left = supWidthCont.style.right = 0;
-                                    subWidthCont.style.textAlign = supWidthCont.style.textAlign = 'center';
-                                    subWidthCont.style.display = supWidthCont.style.display = 'inline-block';
-                                    subWidthCont.appendChild(sub.firstElementChild);
-                                    supWidthCont.appendChild(sup.firstElementChild);
-                                    subThinContainer.appendChild(subWidthCont);
-                                    supThinContainer.appendChild(supWidthCont);
-                                    var subClone = noWrap(nucleusElem.cloneNode(true)),
-                                        supClone = subClone.cloneNode(true);
-                                    subClone.style.visibility = supClone.style.visibility = 'hidden';
-                                    subClone.style.webkitUserSelect =
-                                        subClone.style.mozUserSelect =
-                                        subClone.style.msUserSelect =
-                                        subClone.style.userSelect =
-                                        supClone.style.webkitUserSelect =
-                                        supClone.style.mozUserSelect =
-                                        supClone.style.msUserSelect =
-                                        supClone.style.userSelect = 'none';
-                                    subClone.style.fontSize = supClone.style.fontSize = style == 'scriptscript' ? '' : '1.414213562em';
-                                    subClone.style.height = supClone.style.height = 0;
-                                    subClone.style.verticalAlign = supClone.style.verticalAlign = 'top';
-                                    subThinContainer.appendChild(subClone);
-                                    supThinContainer.appendChild(supClone);
-                                    sub.appendChild(subThinContainer);
-                                    sup.appendChild(supThinContainer);
-                                } else if (nucleusWidth <= subWidth && supWidth <= subWidth) {
-                                    token.div.insertBefore(sup, nucleusElem);
-                                    token.div.appendChild(sub);
-                                    sup.style.width = nucleusElem.style.width = 0;
-
-                                    var supThinContainer = document.createElement('div'),
-                                        nucThinContainer = document.createElement('div');
-                                    supThinContainer.style.display = nucThinContainer.style.display = 'inline-block';
-                                    supThinContainer.style.position = nucThinContainer.style.position = 'relative';
-                                    var supHeightContainer = document.createElement('div'),
-                                        nucHeightContainer = document.createElement('div');
-                                    supHeightContainer.style.display = nucHeightContainer.style.display = 'inline-block';
-                                    supHeightContainer.style.width = nucHeightContainer.style.width = 0;
-                                    supHeightContainer.style.visibility = nucHeightContainer.style.visibility = 'hidden';
-                                    supHeightContainer.style.webkitUserSelect =
-                                        supHeightContainer.style.mozUserSelect =
-                                        supHeightContainer.style.msUserSelect =
-                                        supHeightContainer.style.userSelect =
-                                        nucHeightContainer.style.webkitUserSelect =
-                                        nucHeightContainer.style.mozUserSelect =
-                                        nucHeightContainer.style.msUserSelect =
-                                        nucHeightContainer.style.userSelect = 'none';
-                                    supHeightContainer.appendChild(noWrap(sup.firstElementChild.cloneNode(true)));
-                                    nucHeightContainer.appendChild(noWrap(nucleusElem.cloneNode(true)));
-                                    supThinContainer.appendChild(supHeightContainer);
-                                    nucThinContainer.appendChild(nucHeightContainer);
-                                    var supWidthCont = document.createElement('div'),
-                                        nucWidthCont = document.createElement('div');
-                                    supWidthCont.style.position = nucWidthCont.style.position = 'absolute';
-                                    supWidthCont.style.left = supWidthCont.style.right = 0;
-                                    nucWidthCont.style.left = nucWidthCont.style.right = 0;
-                                    supWidthCont.style.textAlign = nucWidthCont.style.textAlign = 'center';
-                                    supWidthCont.style.display = nucWidthCont.style.display = 'inline-block';
-                                    supWidthCont.appendChild(sup.firstElementChild);
-                                    nucWidthCont.appendChild(nucleusElem);
-                                    supThinContainer.appendChild(supWidthCont);
-                                    nucThinContainer.appendChild(nucWidthCont);
-                                    var supClone = noWrap(sub.firstElementChild.cloneNode(true)),
-                                        nucClone = supClone.cloneNode(true);
-                                    supClone.style.visibility = nucClone.style.visibility = 'hidden';
-                                    supClone.style.webkitUserSelect =
-                                        supClone.style.mozUserSelect =
-                                        supClone.style.msUserSelect =
-                                        supClone.style.userSelect =
-                                        nucClone.style.webkitUserSelect =
-                                        nucClone.style.mozUserSelect =
-                                        nucClone.style.msUserSelect =
-                                        nucClone.style.userSelect = 'none';
-                                    supClone.style.fontSize = '';
-                                    nucClone.style.fontSize = style == 'scriptscript' ? '' : '.707106781em';
-                                    supClone.style.height = nucClone.style.height = 0;
-                                    supClone.style.verticalAlign = nucClone.style.verticalAlign = 'top';
-                                    supThinContainer.appendChild(supClone);
-                                    nucThinContainer.appendChild(nucClone);
-                                    sup.appendChild(supThinContainer);
-                                    var nucleusPar = document.createElement('div');
-                                    nucleusPar.style.display = 'inline-block';
-                                    nucleusPar.style.width = 0;
-                                    nucleusPar.appendChild(nucThinContainer);
-                                    token.div.insertBefore(nucleusPar, sub);
-                                }
-
-                                token.div.insertBefore(heightOffset, token.div.firstElementChild);
-
-                                token.div.renderedHeight += supHeight * (style == 'scriptscript' ? 1 : .707106781) * multiplier;
-                                token.div.renderedDepth += subHeight * (style == 'scriptscript' ? 1 : .707106781) * multiplier;
                             }
-                        }
 
+                            // Now a font-size needs to be set on the element to show differences between
+                            // styles (e.g. if a \displaystyle was found inside a \scriptstyle group).
+                            token.div.style.fontSize = multiplier + 'em';
 
-                        // If the current token is marked as delimited, then a pair of delimiters is added
-                        // to the div. Delimiters appear from \left \right pairs.
-                        if (token.delimited) {
-                            // `leftDelim' and `rightDelim' are both the elements where the delimiters are dis-
-                            // played. If no delimiter was specified, then the value of \nulldelimiterspace is
-                            // added instead as a kern token.
-                            var leftDelim = document.createElement('canvas'),
-                                rightDelim = document.createElement('canvas');
+                            // If the current token is marked as delimited, then a pair of delimiters is added
+                            // to the div. Delimiters appear from \left \right pairs.
+                            if (token.delimited) {
+                                // `leftDelim' and `rightDelim' are both the elements where the delimiters are dis-
+                                // played. If no delimiter was specified, then the value of \nulldelimiterspace is
+                                // added instead as a kern token.
+                                var leftDelim = document.createElement('canvas'),
+                                    rightDelim = document.createElement('canvas');
 
-                            leftDelim.style.display = rightDelim.style.display = 'inline-block';
+                                leftDelim.style.display = rightDelim.style.display = 'inline-block';
 
-                            if (token.delims[0] == '>') token.delims[0] = '⟩';
-                            if (token.delims[1] == '>') token.delims[1] = '⟩';
-                            if (token.delims[0] == '<') token.delims[0] = '⟨';
-                            if (token.delims[1] == '<') token.delims[1] = '⟨';
+                                if (token.delims[0] == '>') token.delims[0] = '⟩';
+                                if (token.delims[1] == '>') token.delims[1] = '⟩';
+                                if (token.delims[0] == '<') token.delims[0] = '⟨';
+                                if (token.delims[1] == '<') token.delims[1] = '⟨';
 
-                            function renderElem(elem, delimiter, leftSide) {
-                                switch (delimiter) {
-                                    case '.':
-                                    default:
-                                        // This case is for when no delimiter was specified (using a "."). It just adds a
-                                        // kern instead of trying to draw a character.
-                                        items.splice(items.length - (leftSide ? 1 : 0), 0, {
-                                            type: 'kern',
-                                            dimen: token.nullDelimiterSpace
-                                        });
-                                        break;
+                                function renderElem(elem, delimiter, leftSide) {
+                                    switch (delimiter) {
+                                        case '.':
+                                        default:
+                                            // This case is for when no delimiter was specified (using a "."). It just adds a
+                                            // kern instead of trying to draw a character.
+                                            items.splice(items.length - (leftSide ? 1 : 0), 0, {
+                                                type: 'kern',
+                                                dimen: token.nullDelimiterSpace
+                                            });
+                                            break;
 
-                                    case '|':
-                                    case '/':
-                                    case '\\':
-                                    case '‖':
-                                    case '⎪':
-                                    case '⏐':
-                                    case '⟨':
-                                    case '⟩':
-                                        // This is the simplest case (other than the one with no delimiter). If the charac-
-                                        // ter falls into this category, it's just stretched. Nothing special. The whole
-                                        // character is placed into a canvas and given a height. The canvas will stretch
-                                        // with the character inside.
+                                        case '|':
+                                        case '/':
+                                        case '\\':
+                                        case '‖':
+                                        case '⎪':
+                                        case '⏐':
+                                        case '⟨':
+                                        case '⟩':
+                                            // This is the simplest case (other than the one with no delimiter). If the charac-
+                                            // ter falls into this category, it's just stretched. Nothing special. The whole
+                                            // character is placed into a canvas and given a height. The canvas will stretch
+                                            // with the character inside.
 
-                                        // The total height of the delimiter is found by taking the taller of the height
-                                        // and depth of `token.div' (accounting for the offset from the baseline to the
-                                        // center of the line) and multiplying by two. So even if there's a fraction or
-                                        // something with a huge height but no depth, the delimiter will still act as if
-                                        // they had the same height and depth. The minimum height of a delimiter is 1 so
-                                        // that a character like a "-" won't just have a super small, weird looking delimi
-                                        // iter.
-                                        var axisHeight = fontTeX.fontDimen.heightOf('x', family) / 2,
-                                            height = Math.max(token.div.renderedHeight - axisHeight, token.div.renderedDepth + axisHeight, (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) / 2) * 2;
-                                        elem.style.height = height + 'em';
-                                        elem.style.width = fontTeX.fontDimen.widthOf(delimiter, family) + 'em';
-                                        elem.style.verticalAlign = 'middle';
+                                            // The total height of the delimiter is found by taking the taller of the height
+                                            // and depth of `token.div' (accounting for the offset from the baseline to the
+                                            // center of the line) and multiplying by two. So even if there's a fraction or
+                                            // something with a huge height but no depth, the delimiter will still act as if
+                                            // they had the same height and depth. The minimum height of a delimiter is 1 so
+                                            // that a character like a "-" won't just have a super small, weird looking delimi
+                                            // iter.
+                                            var axisHeight = fontTeX.fontDimen.heightOf('x', family) / 2,
+                                                height = Math.max(token.div.renderedHeight - axisHeight, token.div.renderedDepth + axisHeight, (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) / 2) * 2;
+                                            elem.style.height = height + 'em';
+                                            elem.style.width = fontTeX.fontDimen.widthOf(delimiter, family) + 'em';
+                                            elem.style.verticalAlign = 'middle';
 
-                                        // If an atom has a height or depth lower than a delimiter, the delimiter character
-                                        // adds extra height/depth.
-                                        token.div.renderedHeight = Math.max(height / 2 + axisHeight, token.div.renderedHeight);
-                                        token.div.renderedDepth = Math.max(height / 2 - axisHeight, token.div.renderedDepth)
+                                            // If an atom has a height or depth lower than a delimiter, the delimiter character
+                                            // adds extra height/depth.
+                                            token.div.renderedHeight = Math.max(height / 2 + axisHeight, token.div.renderedHeight);
+                                            token.div.renderedDepth = Math.max(height / 2 - axisHeight, token.div.renderedDepth)
 
-                                        // The height of the canvas is set to 100 (all of its coordinates are based on the
-                                        // height). The width is found out by setting up the ratio [width] / [character's
-                                        // physical width] = 100 / [character's visible height]. The physical width is used
-                                        // so that the delimiter will look as closely to a real character as possible.
-                                        elem.height = 100;
-                                        elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) * 100;
-                                        var context = elem.getContext('2d');
-                                        context.textAlign = 'center';
-                                        // The font is set to the current family with a font-size that will draw the char-
-                                        // acter such that its height + depth will take up 100px (the entirety of the can-
-                                        // vas).
-                                        context.font = 100 / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) + 'px ' + family;
-                                        // Now the character is drawn. The x coordinate is set in the middle of the canvas
-                                        // to ensure the character is drawn right in the center, like a normal character
-                                        // would outside of a canvas. The y coordinate though is offset by the character's
-                                        // depth so that the bottom of the visible character will be at the bottom of the
-                                        // canvas (if it was just 100, everything below the character's baseline would be
-                                        // cropped off).
-                                        context.fillText(delimiter, elem.width / 2, 100 - fontTeX.fontDimen.depthOf(delimiter, family) * 100 / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)));
-                                        // Now the canvas is inserted into the element.
-                                        token.div.insertBefore(elem, leftSide ? token.div.firstElementChild : null);
-                                        break;
-
-                                    case '(':
-                                    case ')':
-                                        // This block accounts for parentheses. Parentheses can't just be stretched to any
-                                        // amount like the previous block because then they just start to look like really
-                                        // long "|". But parentheses CAN be stretched a little before they start looking
-                                        // weird. This block will stretch a parenthesis to a maximum of two times its nor-
-                                        // mal height. If the desired height is any bigger than that, then only the middle,
-                                        // most vertical part of the parenthesis will stretch. This happens in normal TeX
-                                        // too (it probably allows for stretching past two times, but then again it has
-                                        // special characters for that; all we have here is the one).
-
-                                        var axisHeight = fontTeX.fontDimen.heightOf('x', family) / 2,
-                                            height = Math.max(token.div.renderedHeight - axisHeight, token.div.renderedDepth + axisHeight, (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) / 2) * 2;
-                                        elem.style.height = height + 'em';
-                                        elem.style.width = fontTeX.fontDimen.widthOf(delimiter, family) + 'em';
-                                        elem.style.verticalAlign = 'middle';
-
-                                        token.div.renderedHeight = Math.max(height / 2 + axisHeight, token.div.renderedHeight);
-                                        token.div.renderedDepth = Math.max(height / 2 - axisHeight, token.div.renderedDepth)
-
-                                        if (height <= 2) {
-                                            // If the height is less than 2, the character can be drawn normally and then just
-                                            // stretched. The code below is copied from the second case item.
-
+                                            // The height of the canvas is set to 100 (all of its coordinates are based on the
+                                            // height). The width is found out by setting up the ratio [width] / [character's
+                                            // physical width] = 100 / [character's visible height]. The physical width is used
+                                            // so that the delimiter will look as closely to a real character as possible.
                                             elem.height = 100;
-                                            elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / fontTeX.fontDimen.heightOf(delimiter, family) * 100 * (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
+                                            elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) * 100;
                                             var context = elem.getContext('2d');
                                             context.textAlign = 'center';
+                                            // The font is set to the current family with a font-size that will draw the char-
+                                            // acter such that its height + depth will take up 100px (the entirety of the can-
+                                            // vas).
                                             context.font = 100 / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) + 'px ' + family;
-                                            context.translate(0, 100);
-                                            context.fillText(delimiter, elem.width / 2, -fontTeX.fontDimen.depthOf(delimiter, family) * 100 / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)));
-                                        } else {
-                                            // If the desired height is greater than two times its normal height, extra steps
-                                            // are necessary to get to its desired height without making it look weird.
+                                            // Now the character is drawn. The x coordinate is set in the middle of the canvas
+                                            // to ensure the character is drawn right in the center, like a normal character
+                                            // would outside of a canvas. The y coordinate though is offset by the character's
+                                            // depth so that the bottom of the visible character will be at the bottom of the
+                                            // canvas (if it was just 100, everything below the character's baseline would be
+                                            // cropped off).
+                                            context.fillText(delimiter, elem.width / 2, 100 - fontTeX.fontDimen.depthOf(delimiter, family) * 100 / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)));
+                                            // Now the canvas is inserted into the element.
+                                            token.div.insertBefore(elem, leftSide ? token.div.firstElementChild : null);
+                                            break;
 
-                                            // To begin, two characters need to be drawn. One will be used for the bottom of
-                                            // the parenthesis, the other for the top. We need to keep them separate though.
-                                            // Consider an example where the height is only off by 1px. If we just draw both
-                                            // character (one at the top of the canvas, the other at the bottom) and clear the
-                                            // rectangle between their two halves, only one row of one pixel will actually be
-                                            // cleared. That's a problem because the top character will also be visible in the
-                                            // bottom character's space because they're too close together. To prevent that,
-                                            // the bottom is drawn first (only the bottom half), copied in an `ImageData', then
-                                            // deleted from the canvas. Then the top is drawn and cropped (so only the top half
-                                            // remains). Now, since the bottom half of the canvas has been cleared, the copy of
-                                            // the bottom half of the character can be pasted. Now, even though the two would
-                                            // normally overlap, they don't because they were drawn separately.
-                                            var glyphHeight = (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
-                                            elem.height = height * 50;
+                                        case '(':
+                                        case ')':
+                                            // This block accounts for parentheses. Parentheses can't just be stretched to any
+                                            // amount like the previous block because then they just start to look like really
+                                            // long "|". But parentheses CAN be stretched a little before they start looking
+                                            // weird. This block will stretch a parenthesis to a maximum of two times its nor-
+                                            // mal height. If the desired height is any bigger than that, then only the middle,
+                                            // most vertical part of the parenthesis will stretch. This happens in normal TeX
+                                            // too (it probably allows for stretching past two times, but then again it has
+                                            // special characters for that; all we have here is the one).
+
+                                            var axisHeight = fontTeX.fontDimen.heightOf('x', family) / 2,
+                                                height = Math.max(token.div.renderedHeight - axisHeight, token.div.renderedDepth + axisHeight, (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) / 2) * 2;
+                                            elem.style.height = height + 'em';
+                                            elem.style.width = fontTeX.fontDimen.widthOf(delimiter, family) + 'em';
+                                            elem.style.verticalAlign = 'middle';
+
+                                            token.div.renderedHeight = Math.max(height / 2 + axisHeight, token.div.renderedHeight);
+                                            token.div.renderedDepth = Math.max(height / 2 - axisHeight, token.div.renderedDepth)
+
+                                            if (height <= 2) {
+                                                // If the height is less than 2, the character can be drawn normally and then just
+                                                // stretched. The code below is copied from the second case item.
+
+                                                elem.height = 100;
+                                                elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / fontTeX.fontDimen.heightOf(delimiter, family) * 100 * (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
+                                                var context = elem.getContext('2d');
+                                                context.textAlign = 'center';
+                                                context.font = 100 / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) + 'px ' + family;
+                                                context.translate(0, 100);
+                                                context.fillText(delimiter, elem.width / 2, -fontTeX.fontDimen.depthOf(delimiter, family) * 100 / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)));
+                                            } else {
+                                                // If the desired height is greater than two times its normal height, extra steps
+                                                // are necessary to get to its desired height without making it look weird.
+
+                                                // To begin, two characters need to be drawn. One will be used for the bottom of
+                                                // the parenthesis, the other for the top. We need to keep them separate though.
+                                                // Consider an example where the height is only off by 1px. If we just draw both
+                                                // character (one at the top of the canvas, the other at the bottom) and clear the
+                                                // rectangle between their two halves, only one row of one pixel will actually be
+                                                // cleared. That's a problem because the top character will also be visible in the
+                                                // bottom character's space because they're too close together. To prevent that,
+                                                // the bottom is drawn first (only the bottom half), copied in an `ImageData', then
+                                                // deleted from the canvas. Then the top is drawn and cropped (so only the top half
+                                                // remains). Now, since the bottom half of the canvas has been cleared, the copy of
+                                                // the bottom half of the character can be pasted. Now, even though the two would
+                                                // normally overlap, they don't because they were drawn separately.
+                                                var glyphHeight = (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
+                                                elem.height = height * 50;
+                                                elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / fontTeX.fontDimen.heightOf(delimiter, family) * 100 * (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
+                                                var context = elem.getContext('2d');
+                                                context.textAlign = 'center';
+                                                context.font = 100 / glyphHeight + 'px ' + family;
+                                                context.fillText(delimiter, elem.width / 2, 50 - fontTeX.fontDimen.depthOf(delimiter, family) * 100 / glyphHeight);
+                                                // Now that the bottom half of the first glyph has been drawn, an `ImageData' saves
+                                                // the pixels so they can be put on the canvas later.
+                                                var bottomHalf = context.getImageData(0, 0, elem.width, 50);
+                                                context.clearRect(0, 0, elem.width, elem.height);
+                                                // The top half needs to be drawn now.
+                                                context.fillText(delimiter, elem.width / 2, 100 - fontTeX.fontDimen.depthOf(delimiter, family) * 100 / glyphHeight)
+                                                context.clearRect(0, 50, elem.width, elem.height);
+                                                // Now paste the bottom half.
+                                                context.putImageData(bottomHalf, 0, elem.height - 50);
+                                                // All that's left to do is to connect them. To do that, a new `ImageData' instance
+                                                // is made where we can manipulate individual pixels. It will have the height of
+                                                // empty region of the canvas (the space between the two halves). For the top half
+                                                // of the `ImageData', the bottommost pixel of the top half character is copied and
+                                                // pasted over and over on top of each other, one row at a time. The same thing
+                                                // happens for the bottom half. It looks really inefficient below because it liter-
+                                                // ally sets every single RGBA channel of every single pixel of every single row.
+                                                // Since an `ImageData's `data' attribute is readonly though, you can't make a new
+                                                // array and replace it, you have to change each individual value.
+                                                var region = context.createImageData(elem.width, elem.height - 100);
+                                                var topHalfRow = context.getImageData(0, 49, elem.width, 1).data,
+                                                    bottomHalfRow = bottomHalf.data.slice(0, elem.width * 4);
+                                                for (var i = 0, l = region.height / 2; i < l; i++) {
+                                                    for (var n = 0, j = elem.width; n < j; n++) {
+                                                        region.data[i * elem.width * 4 + n * 4] = topHalfRow[n * 4];
+                                                        region.data[i * elem.width * 4 + n * 4 + 1] = topHalfRow[n * 4 + 1];
+                                                        region.data[i * elem.width * 4 + n * 4 + 2] = topHalfRow[n * 4 + 2];
+                                                        region.data[i * elem.width * 4 + n * 4 + 3] = topHalfRow[n * 4 + 3];
+                                                        region.data[~~(i + region.height / 2) * elem.width * 4 + n * 4] = bottomHalfRow[n * 4];
+                                                        region.data[~~(i + region.height / 2) * elem.width * 4 + n * 4 + 1] = bottomHalfRow[n * 4 + 1];
+                                                        region.data[~~(i + region.height / 2) * elem.width * 4 + n * 4 + 2] = bottomHalfRow[n * 4 + 2];
+                                                        region.data[~~(i + region.height / 2) * elem.width * 4 + n * 4 + 3] = bottomHalfRow[n * 4 + 3];
+                                                    }
+                                                }
+                                                // The pixels have all been copied. After it gets pasted below, the two halves will
+                                                // be connected.
+                                                context.putImageData(region, 0, 50);
+                                            }
+                                            token.div.insertBefore(elem, leftSide ? token.div.firstElementChild : null);
+                                            break;
+
+                                        case '[':
+                                        case ']':
+                                        case '⟮':
+                                        case '⟯':
+                                        case '↑':
+                                        case '↓':
+                                        case '↕':
+                                        case '⇑':
+                                        case '⇓':
+                                        case '⇕':
+                                        case '⌈':
+                                        case '⌉':
+                                        case '⌊':
+                                        case '⌋':
+                                        case '⎰':
+                                        case '⎱':
+                                            // These characters expand at the middle similar to how the parentheses do. The
+                                            // only difference is that they don't try to stretch to twice their height first.
+                                            // The code below is coped from the third case item.
+
+                                            var axisHeight = fontTeX.fontDimen.heightOf('x', family) / 2,
+                                                height = Math.max(token.div.renderedHeight - axisHeight, token.div.renderedDepth + axisHeight, (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) / 2) * 2;
+                                            elem.style.height = height + 'em';
+                                            elem.style.width = fontTeX.fontDimen.widthOf(delimiter, family) + 'em';
+                                            elem.style.verticalAlign = 'middle';
+                                            var glyphHeight = 100 / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
+                                            elem.height = Math.max(height, 1) * 100;
                                             elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / fontTeX.fontDimen.heightOf(delimiter, family) * 100 * (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
                                             var context = elem.getContext('2d');
                                             context.textAlign = 'center';
-                                            context.font = 100 / glyphHeight + 'px ' + family;
-                                            context.fillText(delimiter, elem.width / 2, 50 - fontTeX.fontDimen.depthOf(delimiter, family) * 100 / glyphHeight);
-                                            // Now that the bottom half of the first glyph has been drawn, an `ImageData' saves
-                                            // the pixels so they can be put on the canvas later.
+                                            context.font = glyphHeight + 'px ' + family;
+                                            context.fillText(delimiter, elem.width / 2, 50 - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight);
+
+                                            token.div.renderedHeight = Math.max(height / 2 + axisHeight, token.div.renderedHeight);
+                                            token.div.renderedDepth = Math.max(height / 2 - axisHeight, token.div.renderedDepth)
+
                                             var bottomHalf = context.getImageData(0, 0, elem.width, 50);
                                             context.clearRect(0, 0, elem.width, elem.height);
-                                            // The top half needs to be drawn now.
-                                            context.fillText(delimiter, elem.width / 2, 100 - fontTeX.fontDimen.depthOf(delimiter, family) * 100 / glyphHeight)
+
+                                            context.fillText(delimiter, elem.width / 2, 100 - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight)
                                             context.clearRect(0, 50, elem.width, elem.height);
-                                            // Now paste the bottom half.
+
                                             context.putImageData(bottomHalf, 0, elem.height - 50);
-                                            // All that's left to do is to connect them. To do that, a new `ImageData' instance
-                                            // is made where we can manipulate individual pixels. It will have the height of
-                                            // empty region of the canvas (the space between the two halves). For the top half
-                                            // of the `ImageData', the bottommost pixel of the top half character is copied and
-                                            // pasted over and over on top of each other, one row at a time. The same thing
-                                            // happens for the bottom half. It looks really inefficient below because it liter-
-                                            // ally sets every single RGBA channel of every single pixel of every single row.
-                                            // Since an `ImageData's `data' attribute is readonly though, you can't make a new
-                                            // array and replace it, you have to change each individual value.
-                                            var region = context.createImageData(elem.width, elem.height - 100);
-                                            var topHalfRow = context.getImageData(0, 49, elem.width, 1).data,
-                                                bottomHalfRow = bottomHalf.data.slice(0, elem.width * 4);
-                                            for (var i = 0, l = region.height / 2; i < l; i++) {
-                                                for (var n = 0, j = elem.width; n < j; n++) {
-                                                    region.data[i * elem.width * 4 + n * 4] = topHalfRow[n * 4];
-                                                    region.data[i * elem.width * 4 + n * 4 + 1] = topHalfRow[n * 4 + 1];
-                                                    region.data[i * elem.width * 4 + n * 4 + 2] = topHalfRow[n * 4 + 2];
-                                                    region.data[i * elem.width * 4 + n * 4 + 3] = topHalfRow[n * 4 + 3];
-                                                    region.data[~~(i + region.height / 2) * elem.width * 4 + n * 4] = bottomHalfRow[n * 4];
-                                                    region.data[~~(i + region.height / 2) * elem.width * 4 + n * 4 + 1] = bottomHalfRow[n * 4 + 1];
-                                                    region.data[~~(i + region.height / 2) * elem.width * 4 + n * 4 + 2] = bottomHalfRow[n * 4 + 2];
-                                                    region.data[~~(i + region.height / 2) * elem.width * 4 + n * 4 + 3] = bottomHalfRow[n * 4 + 3];
+
+                                            if (elem.height > 100) {
+                                                var region = context.createImageData(elem.width, elem.height - 100);
+                                                var topHalfRow = context.getImageData(0, 49, elem.width, 1).data,
+                                                    bottomHalfRow = bottomHalf.data.slice(0, elem.width * 4);
+                                                for (var i = 0, l = region.height / 2; i < l; i++) {
+                                                    for (var n = 0, j = elem.width; n < j; n++) {
+                                                        region.data[i * elem.width * 4 + n * 4] = topHalfRow[n * 4];
+                                                        region.data[i * elem.width * 4 + n * 4 + 1] = topHalfRow[n * 4 + 1];
+                                                        region.data[i * elem.width * 4 + n * 4 + 2] = topHalfRow[n * 4 + 2];
+                                                        region.data[i * elem.width * 4 + n * 4 + 3] = topHalfRow[n * 4 + 3];
+                                                        region.data[~~(i + region.height / 2) * elem.width * 4 + n * 4] = bottomHalfRow[n * 4];
+                                                        region.data[~~(i + region.height / 2) * elem.width * 4 + n * 4 + 1] = bottomHalfRow[n * 4 + 1];
+                                                        region.data[~~(i + region.height / 2) * elem.width * 4 + n * 4 + 2] = bottomHalfRow[n * 4 + 2];
+                                                        region.data[~~(i + region.height / 2) * elem.width * 4 + n * 4 + 3] = bottomHalfRow[n * 4 + 3];
+                                                    }
                                                 }
+                                                context.putImageData(region, 0, 50);
                                             }
-                                            // The pixels have all been copied. After it gets pasted below, the two halves will
-                                            // be connected.
-                                            context.putImageData(region, 0, 50);
-                                        }
-                                        token.div.insertBefore(elem, leftSide ? token.div.firstElementChild : null);
-                                        break;
 
-                                    case '[':
-                                    case ']':
-                                    case '⟮':
-                                    case '⟯':
-                                    case '↑':
-                                    case '↓':
-                                    case '↕':
-                                    case '⇑':
-                                    case '⇓':
-                                    case '⇕':
-                                    case '⌈':
-                                    case '⌉':
-                                    case '⌊':
-                                    case '⌋':
-                                    case '⎰':
-                                    case '⎱':
-                                        // These characters expand at the middle similar to how the parentheses do. The
-                                        // only difference is that they don't try to stretch to twice their height first.
-                                        // The code below is coped from the third case item.
+                                            token.div.insertBefore(elem, leftSide ? token.div.firstElementChild : null);
+                                            break;
 
-                                        var axisHeight = fontTeX.fontDimen.heightOf('x', family) / 2,
-                                            height = Math.max(token.div.renderedHeight - axisHeight, token.div.renderedDepth + axisHeight, (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) / 2) * 2;
-                                        elem.style.height = height + 'em';
-                                        elem.style.width = fontTeX.fontDimen.widthOf(delimiter, family) + 'em';
-                                        elem.style.verticalAlign = 'middle';
-                                        var glyphHeight = 100 / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
-                                        elem.height = Math.max(height, 1) * 100;
-                                        elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / fontTeX.fontDimen.heightOf(delimiter, family) * 100 * (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
-                                        var context = elem.getContext('2d');
-                                        context.textAlign = 'center';
-                                        context.font = glyphHeight + 'px ' + family;
-                                        context.fillText(delimiter, elem.width / 2, 50 - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight);
+                                        case '{':
+                                        case '}':
+                                            // Curly braces are expanded in two places compared to other delimiters: once at
+                                            // one third quarter up and the other at two thirds (between the things sticking
+                                            // out on the side). It works for most fonts, but it might still look kind of weird
+                                            // for others. There's no way to know for sure where to cut up the character other
+                                            // than looking at individual pixels and looking for where the character seems most
+                                            // vertically flat, which seems like a long, unnecessary and hard task for some-
+                                            // thing small like this. It still works for most cases.
 
-                                        token.div.renderedHeight = Math.max(height / 2 + axisHeight, token.div.renderedHeight);
-                                        token.div.renderedDepth = Math.max(height / 2 - axisHeight, token.div.renderedDepth)
+                                            var axisHeight = fontTeX.fontDimen.heightOf('x', family) / 2,
+                                                height = Math.max(token.div.renderedHeight - axisHeight, token.div.renderedDepth + axisHeight, (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) / 2) * 2;
+                                            elem.style.height = height + 'em';
+                                            elem.style.width = fontTeX.fontDimen.widthOf(delimiter, family) + 'em';
+                                            elem.style.verticalAlign = 'middle';
+                                            var glyphHeight = 100 / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
+                                            elem.height = Math.max(height, 1) * 100;
+                                            elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / fontTeX.fontDimen.heightOf(delimiter, family) * 100 * (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
+                                            var context = elem.getContext('2d');
+                                            context.textAlign = 'center';
+                                            context.font = glyphHeight + 'px ' + family;
 
-                                        var bottomHalf = context.getImageData(0, 0, elem.width, 50);
-                                        context.clearRect(0, 0, elem.width, elem.height);
+                                            token.div.renderedHeight = Math.max(height / 2 + axisHeight, token.div.renderedHeight);
+                                            token.div.renderedDepth = Math.max(height / 2 - axisHeight, token.div.renderedDepth)
 
-                                        context.fillText(delimiter, elem.width / 2, 100 - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight)
-                                        context.clearRect(0, 50, elem.width, elem.height);
+                                            // The bottom half is saved here.
+                                            context.fillText(delimiter, elem.width / 2, 33 - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight);
+                                            var bottomHalf = context.getImageData(0, 0, elem.width, 33);
+                                            context.clearRect(0, 0, elem.width, elem.height);
 
-                                        context.putImageData(bottomHalf, 0, elem.height - 50);
+                                            // Since there's three parts, the top needs to be saved too for the next part (the
+                                            // middle) to be drawn too.
+                                            context.fillText(delimiter, elem.width / 2, 100 - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight)
+                                            var topHalf = context.getImageData(0, 0, elem.width, 33);
+                                            context.clearRect(0, 0, elem.width, elem.height);
 
-                                        if (elem.height > 100) {
-                                            var region = context.createImageData(elem.width, elem.height - 100);
-                                            var topHalfRow = context.getImageData(0, 49, elem.width, 1).data,
-                                                bottomHalfRow = bottomHalf.data.slice(0, elem.width * 4);
-                                            for (var i = 0, l = region.height / 2; i < l; i++) {
-                                                for (var n = 0, j = elem.width; n < j; n++) {
-                                                    region.data[i * elem.width * 4 + n * 4] = topHalfRow[n * 4];
-                                                    region.data[i * elem.width * 4 + n * 4 + 1] = topHalfRow[n * 4 + 1];
-                                                    region.data[i * elem.width * 4 + n * 4 + 2] = topHalfRow[n * 4 + 2];
-                                                    region.data[i * elem.width * 4 + n * 4 + 3] = topHalfRow[n * 4 + 3];
-                                                    region.data[~~(i + region.height / 2) * elem.width * 4 + n * 4] = bottomHalfRow[n * 4];
-                                                    region.data[~~(i + region.height / 2) * elem.width * 4 + n * 4 + 1] = bottomHalfRow[n * 4 + 1];
-                                                    region.data[~~(i + region.height / 2) * elem.width * 4 + n * 4 + 2] = bottomHalfRow[n * 4 + 2];
-                                                    region.data[~~(i + region.height / 2) * elem.width * 4 + n * 4 + 3] = bottomHalfRow[n * 4 + 3];
+                                            // The middle is drawn here and the top and bottom parts are cleared.
+                                            context.fillText(delimiter, elem.width / 2, elem.height / 2 + 50 - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight);
+                                            context.clearRect(0, 0, elem.width, Math.floor(elem.height / 2) - 17);
+                                            context.clearRect(0, Math.ceil(elem.height / 2) + 17, elem.width, elem.height);
+
+                                            context.putImageData(topHalf, 0, 0);
+                                            context.putImageData(bottomHalf, 0, elem.height - 33);
+
+                                            if (elem.height > 100) {
+                                                // There are two regions that need to be filled in. The top one is done first.
+                                                var topRegion = context.createImageData(elem.width, Math.ceil(elem.height / 2) - 50),
+                                                    topHalfRow = topHalf.data.slice(32 * elem.width * 4, 33 * elem.width * 4),
+                                                    bottomHalfRow = context.getImageData(0, Math.ceil(elem.height / 2) - 16, elem.width, 1).data;
+                                                for (var i = 0, l = topRegion.height / 2; i < l; i++) {
+                                                    for (var n = 0, j = elem.width; n < j; n++) {
+                                                        topRegion.data[i * elem.width * 4 + n * 4] = topHalfRow[n * 4];
+                                                        topRegion.data[i * elem.width * 4 + n * 4 + 1] = topHalfRow[n * 4 + 1];
+                                                        topRegion.data[i * elem.width * 4 + n * 4 + 2] = topHalfRow[n * 4 + 2];
+                                                        topRegion.data[i * elem.width * 4 + n * 4 + 3] = topHalfRow[n * 4 + 3];
+                                                        topRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4] = bottomHalfRow[n * 4];
+                                                        topRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4 + 1] = bottomHalfRow[n * 4 + 1];
+                                                        topRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4 + 2] = bottomHalfRow[n * 4 + 2];
+                                                        topRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4 + 3] = bottomHalfRow[n * 4 + 3];
+                                                    }
                                                 }
-                                            }
-                                            context.putImageData(region, 0, 50);
-                                        }
-
-                                        token.div.insertBefore(elem, leftSide ? token.div.firstElementChild : null);
-                                        break;
-
-                                    case '{':
-                                    case '}':
-                                        // Curly braces are expanded in two places compared to other delimiters: once at
-                                        // one third quarter up and the other at two thirds (between the things sticking
-                                        // out on the side). It works for most fonts, but it might still look kind of weird
-                                        // for others. There's no way to know for sure where to cut up the character other
-                                        // than looking at individual pixels and looking for where the character seems most
-                                        // vertically flat, which seems like a long, unnecessary and hard task for some-
-                                        // thing small like this. It still works for most cases.
-
-                                        var axisHeight = fontTeX.fontDimen.heightOf('x', family) / 2,
-                                            height = Math.max(token.div.renderedHeight - axisHeight, token.div.renderedDepth + axisHeight, (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) / 2) * 2;
-                                        elem.style.height = height + 'em';
-                                        elem.style.width = fontTeX.fontDimen.widthOf(delimiter, family) + 'em';
-                                        elem.style.verticalAlign = 'middle';
-                                        var glyphHeight = 100 / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
-                                        elem.height = Math.max(height, 1) * 100;
-                                        elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / fontTeX.fontDimen.heightOf(delimiter, family) * 100 * (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
-                                        var context = elem.getContext('2d');
-                                        context.textAlign = 'center';
-                                        context.font = glyphHeight + 'px ' + family;
-
-                                        token.div.renderedHeight = Math.max(height / 2 + axisHeight, token.div.renderedHeight);
-                                        token.div.renderedDepth = Math.max(height / 2 - axisHeight, token.div.renderedDepth)
-
-                                        // The bottom half is saved here.
-                                        context.fillText(delimiter, elem.width / 2, 33 - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight);
-                                        var bottomHalf = context.getImageData(0, 0, elem.width, 33);
-                                        context.clearRect(0, 0, elem.width, elem.height);
-
-                                        // Since there's three parts, the top needs to be saved too for the next part (the
-                                        // middle) to be drawn too.
-                                        context.fillText(delimiter, elem.width / 2, 100 - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight)
-                                        var topHalf = context.getImageData(0, 0, elem.width, 33);
-                                        context.clearRect(0, 0, elem.width, elem.height);
-
-                                        // The middle is drawn here and the top and bottom parts are cleared.
-                                        context.fillText(delimiter, elem.width / 2, elem.height / 2 + 50 - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight);
-                                        context.clearRect(0, 0, elem.width, Math.floor(elem.height / 2) - 17);
-                                        context.clearRect(0, Math.ceil(elem.height / 2) + 17, elem.width, elem.height);
-
-                                        context.putImageData(topHalf, 0, 0);
-                                        context.putImageData(bottomHalf, 0, elem.height - 33);
-
-                                        if (elem.height > 100) {
-                                            // There are two regions that need to be filled in. The top one is done first.
-                                            var topRegion = context.createImageData(elem.width, Math.ceil(elem.height / 2) - 50),
-                                                topHalfRow = topHalf.data.slice(32 * elem.width * 4, 33 * elem.width * 4),
-                                                bottomHalfRow = context.getImageData(0, Math.ceil(elem.height / 2) - 16, elem.width, 1).data;
-                                            for (var i = 0, l = topRegion.height / 2; i < l; i++) {
-                                                for (var n = 0, j = elem.width; n < j; n++) {
-                                                    topRegion.data[i * elem.width * 4 + n * 4] = topHalfRow[n * 4];
-                                                    topRegion.data[i * elem.width * 4 + n * 4 + 1] = topHalfRow[n * 4 + 1];
-                                                    topRegion.data[i * elem.width * 4 + n * 4 + 2] = topHalfRow[n * 4 + 2];
-                                                    topRegion.data[i * elem.width * 4 + n * 4 + 3] = topHalfRow[n * 4 + 3];
-                                                    topRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4] = bottomHalfRow[n * 4];
-                                                    topRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4 + 1] = bottomHalfRow[n * 4 + 1];
-                                                    topRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4 + 2] = bottomHalfRow[n * 4 + 2];
-                                                    topRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4 + 3] = bottomHalfRow[n * 4 + 3];
+                                                var bottomRegion = context.createImageData(elem.width, Math.ceil(elem.height / 2) - 50),
+                                                    topHalfRow = context.getImageData(0, Math.floor(elem.height / 2) + 16, elem.width, 1).data,
+                                                    bottomHalfRow = bottomHalf.data.slice(0, elem.width * 4)
+                                                for (var i = 0, l = topRegion.height / 2; i < l; i++) {
+                                                    for (var n = 0, j = elem.width; n < j; n++) {
+                                                        bottomRegion.data[i * elem.width * 4 + n * 4] = topHalfRow[n * 4];
+                                                        bottomRegion.data[i * elem.width * 4 + n * 4 + 1] = topHalfRow[n * 4 + 1];
+                                                        bottomRegion.data[i * elem.width * 4 + n * 4 + 2] = topHalfRow[n * 4 + 2];
+                                                        bottomRegion.data[i * elem.width * 4 + n * 4 + 3] = topHalfRow[n * 4 + 3];
+                                                        bottomRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4] = bottomHalfRow[n * 4];
+                                                        bottomRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4 + 1] = bottomHalfRow[n * 4 + 1];
+                                                        bottomRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4 + 2] = bottomHalfRow[n * 4 + 2];
+                                                        bottomRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4 + 3] = bottomHalfRow[n * 4 + 3];
+                                                    }
                                                 }
+                                                context.putImageData(topRegion, 0, 33);
+                                                context.putImageData(bottomRegion, 0, elem.height / 2 + 17);
                                             }
-                                            var bottomRegion = context.createImageData(elem.width, Math.ceil(elem.height / 2) - 50),
-                                                topHalfRow = context.getImageData(0, Math.floor(elem.height / 2) + 16, elem.width, 1).data,
-                                                bottomHalfRow = bottomHalf.data.slice(0, elem.width * 4)
-                                            for (var i = 0, l = topRegion.height / 2; i < l; i++) {
-                                                for (var n = 0, j = elem.width; n < j; n++) {
-                                                    bottomRegion.data[i * elem.width * 4 + n * 4] = topHalfRow[n * 4];
-                                                    bottomRegion.data[i * elem.width * 4 + n * 4 + 1] = topHalfRow[n * 4 + 1];
-                                                    bottomRegion.data[i * elem.width * 4 + n * 4 + 2] = topHalfRow[n * 4 + 2];
-                                                    bottomRegion.data[i * elem.width * 4 + n * 4 + 3] = topHalfRow[n * 4 + 3];
-                                                    bottomRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4] = bottomHalfRow[n * 4];
-                                                    bottomRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4 + 1] = bottomHalfRow[n * 4 + 1];
-                                                    bottomRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4 + 2] = bottomHalfRow[n * 4 + 2];
-                                                    bottomRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4 + 3] = bottomHalfRow[n * 4 + 3];
-                                                }
-                                            }
-                                            context.putImageData(topRegion, 0, 33);
-                                            context.putImageData(bottomRegion, 0, elem.height / 2 + 17);
-                                        }
 
-                                        token.div.insertBefore(elem, leftSide ? token.div.firstElementChild : null);
-                                        break;
+                                            token.div.insertBefore(elem, leftSide ? token.div.firstElementChild : null);
+                                            break;
+                                    }
+                                }
+
+                                renderElem(leftDelim, token.delims[0], true);
+                                renderElem(rightDelim, token.delims[1], false);
+                            }
+
+                            // Now that the nucleus of the atom is done, only the sub/superscripts need to be
+                            // created. After that, the atom is done being rendered. Here is where the scripts
+                            // are made. Op atoms with limits displayed are special cases though. Their script
+                            // are placed above and below their atoms instead of to the right like normal
+                            // scripts. They are handled in the else if block following this if block.
+                            if ((token.superscript || token.subscript) && (token.atomType != 1 || !token.limits)) {
+                                if (token.subscript && !token.superscript) {
+                                    // If the atom has a subscript but no superscript, the subscript is rendered a lit-
+                                    // tle higher than normal.
+
+                                    // `heightOffset' is used to offset the vertical spacing of any lines adjacent to
+                                    // the equation.
+                                    var sub = document.createElement('div'),
+                                        heightOffset = document.createElement('div');
+                                    sub.style.display = 'inline-block';
+                                    sub.style.verticalAlign = 'text-bottom';
+                                    sub.style.position = 'relative';
+                                    heightOffset.style.verticalAlign = 'text-top';
+                                    heightOffset.innerText = '\u00a0';
+                                    heightOffset.style.display = 'inline-block';
+                                    heightOffset.style.width = 0;
+                                    newBox(token.subscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', true, font, sub);
+
+                                    sub.style.fontSize = '50px';
+                                    container.appendChild(sub);
+                                    var height = sub.getBoundingClientRect().height / 50;
+                                    container.removeChild(sub);
+
+                                    // If the style isn't already at scriptscript, then it'll be rendered at a smaller
+                                    // font. There's a lot of numbers below with adding and subtracting and stuff, but
+                                    // basically, the subscript is moved up or down so that its baseline matches the
+                                    // baseline of the nucleus (since vertical-align: text-bottom moves it depending on
+                                    // the font size). Once the baselines are lined up, the script is moved down so
+                                    // that either it's top is at 4/5 of the parent's ex height, or its bottom is 1/5
+                                    // below the nucleus's bottom, which ever is lower. That means the subscript will
+                                    // always be at least 4/5 below the ex height, but will also be moved down if the
+                                    // nucleus is extra tall. The 4/5 number was taken directly from TeX. TeX gets the
+                                    // 1/5 from fonts' parameters and can vary depending on the font. 1/5 just seems to
+                                    // be around the right area to fit most fonts.
+                                    if (style == 'scriptscript') {
+                                        sub.style.fontSize = '';
+                                        sub.style.top = Math.max(sub.baseline, sub.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier + .2, sub.renderedHeight - fontTeX.fontDimen.heightOf('x', family)) - height + 'em';
+                                        heightOffset.style.paddingBottom = Math.max(sub.baseline, sub.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier + .2, sub.renderedHeight - fontTeX.fontDimen.heightOf('x', family)) - height + 'em';
+                                        token.div.renderedDepth = Math.max(token.div.renderedDepth, (sub.renderedDepth + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier + .2, sub.renderedHeight - fontTeX.fontDimen.heightOf('x', family))) * multiplier);
+                                    } else {
+                                        sub.style.fontSize = '.707106781em';
+                                        sub.style.top = Math.max(sub.baseline, sub.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) / .707106781 + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier / .707106781 + .2, sub.renderedHeight - fontTeX.fontDimen.heightOf('x', family)) - height + 'em';
+                                        heightOffset.style.paddingBottom = (Math.max(sub.baseline, sub.renderedDepth) * .707106781 - fontTeX.fontDimen.baselineHeightOf(family) + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier / .707106781 + .2, sub.renderedHeight - fontTeX.fontDimen.heightOf('x', family)) * .707106781) + 'em';
+                                        token.div.renderedDepth = Math.max(token.div.renderedDepth, (sub.renderedDepth * .707106781 + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier / .707106781 + .2, sub.renderedHeight - fontTeX.fontDimen.heightOf('x', family)) * .707106781) * multiplier);
+                                    }
+                                    // If the subscript is taller than the nucleus (it can happen if there's like a
+                                    // fraction or a table in the script but not in the nucleus of if the script
+                                    // itself also has scripts), it can unintentionally offset the height of the line.
+                                    // To prevent that, its height is set to 0.
+                                    sub.style.height = 0;
+                                    token.div.appendChild(sub);
+                                    token.div.insertBefore(heightOffset, sub);
+                                } else if (token.superscript && !token.subscript) {
+                                    // Superscripts are rendered much the same way as subscripts. Instead of getting a
+                                    // `heightOffset' element, they get a padding-top that displaces elements around it
+                                    // instead.
+                                    var sup = document.createElement('div');
+                                    newBox(token.superscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped, font, sup);
+                                    sup.style.display = 'inline-block';
+                                    sup.style.verticalAlign = 'text-bottom';
+                                    sup.style.position = 'relative';
+
+                                    // The math here is almost the same as with subscripts. The script is moved to the
+                                    // baseline first. Then it's shift up so that either the bottom is at 7/10 (3/5
+                                    // when in "cramped" mode) of the ex height, or the top is 1/5 (1/10 in "cramped"
+                                    // mode) above the height of the nucleus. It's always at least 3/5 above the ex
+                                    // height but can move up with the nucleus if the nucleus is particularly tall.
+                                    // "Cramped" mode is when the `cramped' argument is true and it basically just sig-
+                                    // nals that exponents need to be rendered lower.
+                                    if (style == 'scriptscript') {
+                                        sup.style.top = Math.max(sup.baseline, sup.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) - Math.max(token.div.renderedHeight / multiplier + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family)) + 'em';
+                                        sup.style.paddingTop = -Math.max(sup.baseline, sup.renderedDepth) + fontTeX.fontDimen.baselineHeightOf(family) + Math.max(token.div.renderedHeight / multiplier + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family)) + 'em';
+                                        token.div.renderedHeight = Math.max(token.div.renderedHeight, (sup.renderedHeight + Math.max(token.div.renderedHeight / multiplier + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family))) * multiplier);
+                                    } else {
+                                        sup.style.fontSize = '.707106781em';
+                                        sup.style.top = Math.max(sup.baseline, sup.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) / .707106781 - Math.max(token.div.renderedHeight / multiplier / .707106781 + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family)) + 'em';
+                                        sup.style.paddingTop = -Math.max(sup.baseline, sup.renderedDepth) + fontTeX.fontDimen.baselineHeightOf(family) / .707106781 + Math.max(token.div.renderedHeight / multiplier / .707106781 + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family)) + 'em';
+                                        token.div.renderedHeight = Math.max(token.div.renderedHeight, (sup.renderedHeight + Math.max(token.div.renderedHeight / multiplier / .707106781 + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family))) * .707106781 * multiplier);
+                                    }
+                                    token.div.appendChild(sup);
+                                } else if (token.subscript && token.superscript) {
+                                    // If both a sub/superscript are found, the thinner is placed first with width: 0.
+                                    // Then the thicker one is placed with its normal width.
+
+                                    // First create the subscript without any styles applied yet. All the dimensions
+                                    // are also gotten from here.
+                                    var sub = document.createElement('div'),
+                                        heightOffset = document.createElement('div');
+                                    sub.style.display = 'inline-block';
+                                    heightOffset.style.verticalAlign = 'text-top';
+                                    heightOffset.innerText = '\u00a0';
+                                    heightOffset.style.display = 'inline-block';
+                                    heightOffset.style.width = 0;
+                                    newBox(token.subscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', true, font, sub);
+                                    sub.style.fontSize = '50px';
+                                    container.appendChild(sub);
+                                    var subDimens = sub.getBoundingClientRect();
+                                    container.removeChild(sub);
+
+                                    // Do the same for the superscript.
+                                    var sup = document.createElement('div');
+                                    sup.style.display = 'inline-block';
+                                    newBox(token.superscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped, font, sup);
+                                    sup.style.fontSize = '50px';
+                                    container.appendChild(sup);
+                                    var supDimens = sup.getBoundingClientRect();
+                                    container.removeChild(sup);
+
+                                    // Assign variables to keep track of which of the scripts is thinner.
+                                    var thinner = supDimens.width > subDimens.width ? sub : sup,
+                                        thicker = supDimens.width > subDimens.width ? sup : sub,
+                                        height = supDimens.height / 50,
+                                        depth = subDimens.height / 50;
+
+                                    // Now, all the styles are added like normal.
+                                    sub.style.verticalAlign = 'text-bottom';
+                                    sup.style.verticalAlign = 'text-bottom';
+                                    sup.style.position = sub.style.position = 'relative';
+                                    if (style == 'scriptscript') {
+                                        sub.style.fontSize = sup.style.fontSize = '';
+
+                                        sup.style.top = Math.max(sup.baseline, sup.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) - Math.max(token.div.renderedHeight / multiplier + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family)) + 'em';
+                                        sup.style.paddingTop = -Math.max(sup.baseline, sup.renderedDepth) + fontTeX.fontDimen.baselineHeightOf(family) + Math.max(token.div.renderedHeight / multiplier + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family)) + 'em';
+                                        token.div.renderedHeight = Math.max(token.div.renderedHeight, (sup.renderedHeight + Math.max(token.div.renderedHeight / multiplier + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family))) * multiplier);
+
+                                        sub.style.top = Math.max(sub.baseline, sub.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier + .2, sub.renderedHeight - .8 * fontTeX.fontDimen.heightOf('x', family)) - depth + 'em';
+                                        heightOffset.style.paddingBottom = Math.max(sub.baseline, sub.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier + .2, sub.renderedHeight - .8 * fontTeX.fontDimen.heightOf('x', family)) - height + 'em';
+                                        token.div.renderedDepth = Math.max(token.div.renderedDepth, (sub.renderedDepth + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier + .2, sub.renderedHeight - .8 * fontTeX.fontDimen.heightOf('x', family))) * multiplier);
+                                    } else {
+                                        sub.style.fontSize = sup.style.fontSize = '.707106781em';
+
+                                        sup.style.top = Math.max(sup.baseline, sup.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) / .707106781 - Math.max(token.div.renderedHeight / multiplier / .707106781 + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family)) + 'em';
+                                        sup.style.paddingTop = -Math.max(sup.baseline, sup.renderedDepth) + fontTeX.fontDimen.baselineHeightOf(family) / .707106781 + Math.max(token.div.renderedHeight / multiplier / .707106781 + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family)) + 'em';
+                                        token.div.renderedHeight = Math.max(token.div.renderedHeight, (sup.renderedHeight + Math.max(token.div.renderedHeight / multiplier / .707106781 + (cramped ? .1 : .2) - sup.renderedHeight, sup.renderedDepth + (cramped ? .9 : 1) * fontTeX.fontDimen.heightOf('x', family))) * .707106781 * multiplier);
+
+                                        sub.style.top = Math.max(sub.baseline, sub.renderedDepth) - fontTeX.fontDimen.baselineHeightOf(family) / .707106781 + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier / .707106781 + .2, sub.renderedHeight - .8 * fontTeX.fontDimen.heightOf('x', family)) - depth + 'em';
+                                        heightOffset.style.paddingBottom = (Math.max(sub.baseline, sub.renderedDepth) * .707106781 - fontTeX.fontDimen.baselineHeightOf(family) + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier / .707106781 + .2, sub.renderedHeight - .8 * fontTeX.fontDimen.heightOf('x', family)) * .707106781) + 'em';
+                                        token.div.renderedDepth = Math.max(token.div.renderedDepth, (sub.renderedDepth * .707106781 + Math.max(Math.max(token.div.renderedDepth, 0) / multiplier / .707106781 + .2, sub.renderedHeight - .8 * fontTeX.fontDimen.heightOf('x', family)) * .707106781) * multiplier);
+                                    }
+
+                                    sub.style.height = 0;
+                                    thinner.style.width = 0;
+
+                                    token.div.appendChild(heightOffset);
+                                    token.div.appendChild(thinner);
+                                    token.div.appendChild(thicker);
+                                }
+                            } else if ((token.superscript || token.subscript) && (token.atomType == 1 && token.limits)) {
+                                // This is where Op atoms' scripts are handled. They are rendered in the same font
+                                // size as normal scripts. The only difference is their position. They're kind of
+                                // positioned like fractions in that the thinner of the three (nucleus, subscript,
+                                // and superscript) is centered. That applies to the second thinnest as well.
+
+                                var nucleusElem = token.div.firstElementChild;
+                                container.appendChild(token.div);
+                                var nucleusWidth = token.div.getBoundingClientRect().width;
+                                container.removeChild(token.div);
+
+                                if (token.subscript && !token.superscript) {
+                                    // If there's only a subscript, we only have to worry about the nucleus and the one
+                                    // script. First, the entire subscript is rendered inside its own box. After that,
+                                    // the same steps are taken that happen for fractions: the thinner of the nucleus
+                                    // and subscripts are placed inside their own special elements to get them to ren-
+                                    // der centered and in the right spot with the right spacing. Look at `case 8'
+                                    // (where fractions are created) for comments.
+
+                                    token.div.renderedDepth = Math.max(token.div.renderedDepth, 0)
+
+                                    var sub = document.createElement('div'),
+                                        heightOffset = document.createElement('div');
+                                    sub.style.display = 'inline-block';
+                                    sub.style.verticalAlign = 'text-bottom';
+                                    sub.style.position = 'relative';
+                                    heightOffset.innerText = '\u00A0';
+                                    heightOffset.style.verticalAlign = 'text-top';
+                                    heightOffset.style.display = 'inline-block';
+                                    heightOffset.style.width = 0;
+                                    newBox(token.subscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', true, font, sub);
+
+                                    sub.style.fontSize = style == 'scriptscript' ? token.div.style.fontSize : 'calc(' + token.div.style.fontSize + ' * .707106781)';
+                                    container.appendChild(sub);
+                                    var width = sub.getBoundingClientRect().width;
+                                    sub.style.fontSize = '50px';
+                                    var height = sub.getBoundingClientRect().height / 50;
+                                    container.removeChild(sub);
+
+                                    if (style == 'scriptscript') {
+                                        sub.style.fontSize = '';
+                                        // The baselineHeight of a font family is how much space is between the baseline
+                                        // and the bottom of the character's box. Taking away a character's depth from that
+                                        // amount leaves only how much empty space there is below a character (a "y" for
+                                        // example has less empty space below it than an "a" because the descender from the
+                                        // "y" gives "y" a greater depth). This is what lets a subscript appear higher on
+                                        // an "a" than on a "y" (try "\mathop y_1 \mathop a_1" to see the difference on the
+                                        // "1").
+                                        sub.style.top = -sub.baseline - sub.baselineOffset - token.div.renderedDepth + 'em';
+                                        heightOffset.style.paddingBottom = height - token.div.baseline + token.div.baselineOffset + token.div.renderedDepth + 'em';
+                                    } else {
+                                        sub.style.fontSize = '.707106781em';
+                                        sub.style.top = (-token.div.baseline - token.div.baselineOffset + token.div.renderedDepth) / .707106781 + 'em';
+                                        heightOffset.style.paddingBottom = height * .707106781 - token.div.baseline - token.div.baselineOffset + token.div.renderedDepth + 'em';
+                                    }
+
+                                    sub.style.height = 0;
+
+                                    // This is where the nucleus and subscript are positioned depending on their width.
+                                    if (width < nucleusWidth) {
+                                        var thinner = sub.firstElementChild, thicker = nucleusElem;
+                                        token.div.insertBefore(sub, nucleusElem);
+                                        sub.style.width = 0;
+                                    } else {
+                                        var thinner = nucleusElem, thicker = sub.firstElementChild;
+                                        token.div.appendChild(sub);
+                                    }
+
+                                    var thinContainer = document.createElement('div');
+                                    thinContainer.style.display = 'inline-block';
+                                    thinContainer.style.position = 'relative';
+                                    var heightContainer = document.createElement('div');
+                                    heightContainer.style.display = 'inline-block';
+                                    heightContainer.style.width = 0;
+                                    heightContainer.style.visibility = 'hidden';
+                                    heightContainer.style.webkitUserSelect =
+                                        heightContainer.style.mozUserSelect =
+                                        heightContainer.style.msUserSelect =
+                                        heightContainer.style.userSelect = 'none';
+                                    heightContainer.appendChild(noWrap(thinner.cloneNode(true)));
+                                    thinContainer.appendChild(heightContainer);
+                                    var widthCont = document.createElement('div');
+                                    widthCont.style.position = 'absolute';
+                                    widthCont.style.left = widthCont.style.right = 0;
+                                    widthCont.style.textAlign = 'center';
+                                    widthCont.style.display = 'inline-block';
+                                    widthCont.appendChild(thinner);
+                                    thinContainer.appendChild(widthCont);
+                                    var clone = noWrap(thicker.cloneNode(true));
+                                    clone.style.visibility = 'hidden';
+                                    clone.style.webkitUserSelect =
+                                        clone.style.mozUserSelect =
+                                        clone.style.msUserSelect =
+                                        clone.style.userSelect = 'none';
+                                    clone.style.fontSize = style == 'scriptscript' ? '' : width < nucleusWidth ? '1.414213562em' : '.707106781em';
+                                    clone.style.height = 0;
+                                    clone.style.verticalAlign = 'top';
+                                    thinContainer.appendChild(clone);
+                                    if (width < nucleusWidth) {
+                                        sub.appendChild(thinContainer);
+                                    } else {
+                                        var nucleusPar = document.createElement('div');
+                                        nucleusPar.style.display = 'inline-block';
+                                        nucleusPar.style.width = 0;
+                                        nucleusPar.appendChild(thinContainer);
+                                        token.div.insertBefore(nucleusPar, sub);
+                                    }
+                                    token.div.insertBefore(heightOffset, token.div.firstElementChild);
+
+                                    // Since the subscript in its entirety is being added on right under the atom, all
+                                    // of its height and depth are adding on to the depth of the atom.
+                                    token.div.renderedDepth += (height * (style == 'scriptscript' ? 1 : .707106781) - sub.baseline - sub.baselineOffset + sub.renderedDepth) * multiplier;
+                                } else if (token.superscript && !token.subscript) {
+                                    // This is the superscript version of the above.
+                                    var sup = document.createElement('div');
+                                    sup.style.display = 'inline-block';
+                                    sup.style.verticalAlign = 'text-bottom';
+                                    newBox(token.superscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped, font, sup);
+
+                                    sup.style.fontSize = style == 'scriptscript' ? token.div.style.fontSize : 'calc(' + token.div.style.fontSize + ' * .707106781)';
+                                    container.appendChild(sup);
+                                    var width = sup.getBoundingClientRect().width;
+                                    sup.style.fontSize = '50px';
+                                    var height = sup.getBoundingClientRect().height / 50;
+                                    container.removeChild(sup);
+
+                                    if (style == 'scriptscript') {
+                                        sup.style.fontSize = '';
+                                        sup.style.marginBottom = token.div.baseline + token.div.baselineOffset + token.div.renderedHeight + 'em';
+                                    } else {
+                                        sup.style.fontSize = '.707106781em';
+                                        sup.style.marginBottom = (token.div.baseline + token.div.baselineOffset + token.div.renderedHeight) / .707106781 + 'em';
+                                    }
+
+                                    if (width < nucleusWidth) {
+                                        var thinner = sup.firstElementChild, thicker = nucleusElem;
+                                        token.div.insertBefore(sup, nucleusElem);
+                                        sup.style.width = 0;
+                                    } else {
+                                        var thinner = nucleusElem, thicker = sup.firstElementChild;
+                                        token.div.appendChild(sup);
+                                    }
+
+                                    var thinContainer = document.createElement('div');
+                                    thinContainer.style.display = 'inline-block';
+                                    thinContainer.style.position = 'relative';
+                                    var heightContainer = document.createElement('div');
+                                    heightContainer.style.display = 'inline-block';
+                                    heightContainer.style.width = 0;
+                                    heightContainer.style.visibility = 'hidden';
+                                    heightContainer.style.webkitUserSelect =
+                                        heightContainer.style.mozUserSelect =
+                                        heightContainer.style.msUserSelect =
+                                        heightContainer.style.userSelect = 'none';
+                                    heightContainer.appendChild(noWrap(thinner.cloneNode(true)));
+                                    thinContainer.appendChild(heightContainer);
+                                    var widthCont = document.createElement('div');
+                                    widthCont.style.position = 'absolute';
+                                    widthCont.style.left = widthCont.style.right = 0;
+                                    widthCont.style.textAlign = 'center';
+                                    widthCont.style.display = 'inline-block';
+                                    widthCont.appendChild(thinner);
+                                    thinContainer.appendChild(widthCont);
+                                    var clone = noWrap(thicker.cloneNode(true));
+                                    clone.style.visibility = 'hidden';
+                                    clone.style.webkitUserSelect =
+                                        clone.style.mozUserSelect =
+                                        clone.style.msUserSelect =
+                                        clone.style.userSelect = 'none';
+                                    clone.style.fontSize = style == 'scriptscript' ? '' : width < nucleusWidth ? '1.414213562em' : '.707106781em';
+                                    clone.style.height = 0;
+                                    clone.style.verticalAlign = 'top';
+                                    thinContainer.appendChild(clone);
+                                    if (width < nucleusWidth) {
+                                        sup.appendChild(thinContainer);
+                                    } else {
+                                        var nucleusPar = document.createElement('div');
+                                        nucleusPar.style.display = 'inline-block';
+                                        nucleusPar.style.width = 0;
+                                        nucleusPar.appendChild(thinContainer);
+                                        token.div.insertBefore(nucleusPar, sup);
+                                    }
+
+                                    token.div.renderedHeight += (sup.baseline + sup.baselineOffset + sup.renderedHeight) * (style == 'scriptscript' ? 1 : .707106781) * multiplier;
+                                } else if (token.superscript && token.subscript) {
+                                    // Both a superscript and subscript are rendered the same way they are separately.
+                                    // The only difference is that three things' widths are compared instead of just
+                                    // two.
+
+                                    token.div.renderedDepth = Math.max(token.div.renderedDepth, 0);
+
+                                    var sub = document.createElement('div');
+                                    sub.style.display = 'inline-block';
+                                    sub.style.verticalAlign = 'text-bottom';
+                                    sub.style.position = 'relative';
+                                    newBox(token.subscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', true, font, sub);
+
+                                    sub.style.fontSize = style == 'scriptscript' ? token.div.style.fontSize : 'calc(' + token.div.style.fontSize + ' * .707106781)';
+                                    container.appendChild(sub);
+                                    var subWidth = sub.getBoundingClientRect().width;
+                                    sub.style.fontSize = '50px';
+                                    var subHeight = sub.getBoundingClientRect().height / 50;
+                                    container.removeChild(sub);
+
+                                    var sup = document.createElement('div');
+                                    sup.style.display = 'inline-block';
+                                    sup.style.verticalAlign = 'text-bottom';
+                                    sup.style.position = 'relative';
+                                    newBox(token.superscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped, font, sup);
+
+                                    sup.style.fontSize = style == 'scriptscript' ? token.div.style.fontSize : 'calc(' + token.div.style.fontSize + ' * .707106781)';
+                                    container.appendChild(sup);
+                                    var supWidth = sup.getBoundingClientRect().width;
+                                    sup.style.fontSize = '50px';
+                                    var supHeight = sup.getBoundingClientRect().height / 50;
+                                    container.removeChild(sup);
+
+                                    var heightOffset = document.createElement('div');
+                                    heightOffset.innerText = '\u00A0';
+                                    heightOffset.style.verticalAlign = 'text-top';
+                                    heightOffset.style.display = 'inline-block';
+                                    heightOffset.style.width = 0;
+
+                                    if (style == 'scriptscript') {
+                                        sub.style.fontSize = sup.style.fontSize = '';
+                                        sub.style.top = -sub.baseline - sub.baselineOffset - token.div.renderedDepth + 'em';
+                                        heightOffset.style.paddingBottom = height - token.div.baseline + token.div.baselineOffset + token.div.renderedDepth + 'em';
+                                        sup.style.marginBottom = token.div.baseline + token.div.baselineOffset + token.div.renderedHeight + 'em';
+                                    } else {
+                                        sub.style.fontSize = sup.style.fontSize = '.707106781em';
+                                        sub.style.top = (-token.div.baseline - token.div.baselineOffset + token.div.renderedDepth) / .707106781 + 'em';
+                                        heightOffset.style.paddingBottom = subHeight * .707106781 - token.div.baseline + token.div.baselineOffset + token.div.renderedDepth + 'em';
+                                        sup.style.marginBottom = (token.div.baseline + token.div.baselineOffset + token.div.renderedHeight) / .707106781 + 'em';
+                                    }
+                                    sub.style.height = 0;
+
+                                    if (subWidth <= supWidth && nucleusWidth <= supWidth) {
+                                        token.div.insertBefore(sub, nucleusElem);
+                                        token.div.appendChild(sup);
+                                        sub.style.width = nucleusElem.style.width = 0;
+
+                                        var subThinContainer = document.createElement('div'),
+                                            nucThinContainer = document.createElement('div');
+                                        subThinContainer.style.display = nucThinContainer.style.display = 'inline-block';
+                                        subThinContainer.style.position = nucThinContainer.style.position = 'relative';
+                                        var subHeightContainer = document.createElement('div'),
+                                            nucHeightContainer = document.createElement('div');
+                                        subHeightContainer.style.display = nucHeightContainer.style.display = 'inline-block';
+                                        subHeightContainer.style.width = nucHeightContainer.style.width = 0;
+                                        subHeightContainer.style.visibility = nucHeightContainer.style.visibility = 'hidden';
+                                        subHeightContainer.style.webkitUserSelect =
+                                            subHeightContainer.style.mozUserSelect =
+                                            subHeightContainer.style.msUserSelect =
+                                            subHeightContainer.style.userSelect =
+                                            nucHeightContainer.style.webkitUserSelect =
+                                            nucHeightContainer.style.mozUserSelect =
+                                            nucHeightContainer.style.msUserSelect =
+                                            nucHeightContainer.style.userSelect = 'none';
+                                        subHeightContainer.appendChild(noWrap(sub.firstElementChild.cloneNode(true)));
+                                        nucHeightContainer.appendChild(noWrap(nucleusElem.cloneNode(true)));
+                                        subThinContainer.appendChild(subHeightContainer);
+                                        nucThinContainer.appendChild(nucHeightContainer);
+                                        var subWidthCont = document.createElement('div'),
+                                            nucWidthCont = document.createElement('div');
+                                        subWidthCont.style.position = nucWidthCont.style.position = 'absolute';
+                                        subWidthCont.style.left = subWidthCont.style.right = 0;
+                                        nucWidthCont.style.left = nucWidthCont.style.right = 0;
+                                        subWidthCont.style.textAlign = nucWidthCont.style.textAlign = 'center';
+                                        subWidthCont.style.display = nucWidthCont.style.display = 'inline-block';
+                                        subWidthCont.appendChild(sub.firstElementChild);
+                                        nucWidthCont.appendChild(nucleusElem);
+                                        subThinContainer.appendChild(subWidthCont);
+                                        nucThinContainer.appendChild(nucWidthCont);
+                                        var subClone = noWrap(sup.firstElementChild.cloneNode(true)),
+                                            nucClone = subClone.cloneNode(true);
+                                        subClone.style.visibility = nucClone.style.visibility = 'hidden';
+                                        subClone.style.webkitUserSelect =
+                                            subClone.style.mozUserSelect =
+                                            subClone.style.msUserSelect =
+                                            subClone.style.userSelect =
+                                            nucClone.style.webkitUserSelect =
+                                            nucClone.style.mozUserSelect =
+                                            nucClone.style.msUserSelect =
+                                            nucClone.style.userSelect = 'none';
+                                        subClone.style.fontSize = '';
+                                        nucClone.style.fontSize = style == 'scriptscript' ? '' : '.707106781em';
+                                        subClone.style.height = nucClone.style.height = 0;
+                                        subClone.style.verticalAlign = nucClone.style.verticalAlign = 'top';
+                                        subThinContainer.appendChild(subClone);
+                                        nucThinContainer.appendChild(nucClone);
+                                        sub.appendChild(subThinContainer);
+                                        var nucleusPar = document.createElement('div');
+                                        nucleusPar.style.display = 'inline-block';
+                                        nucleusPar.style.width = 0;
+                                        nucleusPar.appendChild(nucThinContainer);
+                                        token.div.insertBefore(nucleusPar, sup);
+                                    } else if (subWidth <= nucleusWidth && supWidth <= nucleusWidth) {
+                                        token.div.insertBefore(sub, nucleusElem);
+                                        token.div.insertBefore(sup, nucleusElem);
+                                        sub.style.width = sup.style.width = 0;
+
+                                        var subThinContainer = document.createElement('div'),
+                                            supThinContainer = document.createElement('div');
+                                        subThinContainer.style.display = supThinContainer.style.display = 'inline-block';
+                                        subThinContainer.style.position = supThinContainer.style.position = 'relative';
+                                        var subHeightContainer = document.createElement('div'),
+                                            supHeightContainer = document.createElement('div');
+                                        subHeightContainer.style.display = supHeightContainer.style.display = 'inline-block';
+                                        subHeightContainer.style.width = supHeightContainer.style.width = 0;
+                                        subHeightContainer.style.visibility = supHeightContainer.style.visibility = 'hidden';
+                                        subHeightContainer.style.webkitUserSelect =
+                                            subHeightContainer.style.mozUserSelect =
+                                            subHeightContainer.style.msUserSelect =
+                                            subHeightContainer.style.userSelect =
+                                            supHeightContainer.style.webkitUserSelect =
+                                            supHeightContainer.style.mozUserSelect =
+                                            supHeightContainer.style.msUserSelect =
+                                            supHeightContainer.style.userSelect = 'none';
+                                        subHeightContainer.appendChild(noWrap(sub.firstElementChild.cloneNode(true)));
+                                        supHeightContainer.appendChild(noWrap(sup.firstElementChild.cloneNode(true)));
+                                        subThinContainer.appendChild(subHeightContainer);
+                                        supThinContainer.appendChild(supHeightContainer);
+                                        var subWidthCont = document.createElement('div'),
+                                            supWidthCont = document.createElement('div');
+                                        subWidthCont.style.position = supWidthCont.style.position = 'absolute';
+                                        subWidthCont.style.left = subWidthCont.style.right = 0;
+                                        supWidthCont.style.left = supWidthCont.style.right = 0;
+                                        subWidthCont.style.textAlign = supWidthCont.style.textAlign = 'center';
+                                        subWidthCont.style.display = supWidthCont.style.display = 'inline-block';
+                                        subWidthCont.appendChild(sub.firstElementChild);
+                                        supWidthCont.appendChild(sup.firstElementChild);
+                                        subThinContainer.appendChild(subWidthCont);
+                                        supThinContainer.appendChild(supWidthCont);
+                                        var subClone = noWrap(nucleusElem.cloneNode(true)),
+                                            supClone = subClone.cloneNode(true);
+                                        subClone.style.visibility = supClone.style.visibility = 'hidden';
+                                        subClone.style.webkitUserSelect =
+                                            subClone.style.mozUserSelect =
+                                            subClone.style.msUserSelect =
+                                            subClone.style.userSelect =
+                                            supClone.style.webkitUserSelect =
+                                            supClone.style.mozUserSelect =
+                                            supClone.style.msUserSelect =
+                                            supClone.style.userSelect = 'none';
+                                        subClone.style.fontSize = supClone.style.fontSize = style == 'scriptscript' ? '' : '1.414213562em';
+                                        subClone.style.height = supClone.style.height = 0;
+                                        subClone.style.verticalAlign = supClone.style.verticalAlign = 'top';
+                                        subThinContainer.appendChild(subClone);
+                                        supThinContainer.appendChild(supClone);
+                                        sub.appendChild(subThinContainer);
+                                        sup.appendChild(supThinContainer);
+                                    } else if (nucleusWidth <= subWidth && supWidth <= subWidth) {
+                                        token.div.insertBefore(sup, nucleusElem);
+                                        token.div.appendChild(sub);
+                                        sup.style.width = nucleusElem.style.width = 0;
+
+                                        var supThinContainer = document.createElement('div'),
+                                            nucThinContainer = document.createElement('div');
+                                        supThinContainer.style.display = nucThinContainer.style.display = 'inline-block';
+                                        supThinContainer.style.position = nucThinContainer.style.position = 'relative';
+                                        var supHeightContainer = document.createElement('div'),
+                                            nucHeightContainer = document.createElement('div');
+                                        supHeightContainer.style.display = nucHeightContainer.style.display = 'inline-block';
+                                        supHeightContainer.style.width = nucHeightContainer.style.width = 0;
+                                        supHeightContainer.style.visibility = nucHeightContainer.style.visibility = 'hidden';
+                                        supHeightContainer.style.webkitUserSelect =
+                                            supHeightContainer.style.mozUserSelect =
+                                            supHeightContainer.style.msUserSelect =
+                                            supHeightContainer.style.userSelect =
+                                            nucHeightContainer.style.webkitUserSelect =
+                                            nucHeightContainer.style.mozUserSelect =
+                                            nucHeightContainer.style.msUserSelect =
+                                            nucHeightContainer.style.userSelect = 'none';
+                                        supHeightContainer.appendChild(noWrap(sup.firstElementChild.cloneNode(true)));
+                                        nucHeightContainer.appendChild(noWrap(nucleusElem.cloneNode(true)));
+                                        supThinContainer.appendChild(supHeightContainer);
+                                        nucThinContainer.appendChild(nucHeightContainer);
+                                        var supWidthCont = document.createElement('div'),
+                                            nucWidthCont = document.createElement('div');
+                                        supWidthCont.style.position = nucWidthCont.style.position = 'absolute';
+                                        supWidthCont.style.left = supWidthCont.style.right = 0;
+                                        nucWidthCont.style.left = nucWidthCont.style.right = 0;
+                                        supWidthCont.style.textAlign = nucWidthCont.style.textAlign = 'center';
+                                        supWidthCont.style.display = nucWidthCont.style.display = 'inline-block';
+                                        supWidthCont.appendChild(sup.firstElementChild);
+                                        nucWidthCont.appendChild(nucleusElem);
+                                        supThinContainer.appendChild(supWidthCont);
+                                        nucThinContainer.appendChild(nucWidthCont);
+                                        var supClone = noWrap(sub.firstElementChild.cloneNode(true)),
+                                            nucClone = supClone.cloneNode(true);
+                                        supClone.style.visibility = nucClone.style.visibility = 'hidden';
+                                        supClone.style.webkitUserSelect =
+                                            supClone.style.mozUserSelect =
+                                            supClone.style.msUserSelect =
+                                            supClone.style.userSelect =
+                                            nucClone.style.webkitUserSelect =
+                                            nucClone.style.mozUserSelect =
+                                            nucClone.style.msUserSelect =
+                                            nucClone.style.userSelect = 'none';
+                                        supClone.style.fontSize = '';
+                                        nucClone.style.fontSize = style == 'scriptscript' ? '' : '.707106781em';
+                                        supClone.style.height = nucClone.style.height = 0;
+                                        supClone.style.verticalAlign = nucClone.style.verticalAlign = 'top';
+                                        supThinContainer.appendChild(supClone);
+                                        nucThinContainer.appendChild(nucClone);
+                                        sup.appendChild(supThinContainer);
+                                        var nucleusPar = document.createElement('div');
+                                        nucleusPar.style.display = 'inline-block';
+                                        nucleusPar.style.width = 0;
+                                        nucleusPar.appendChild(nucThinContainer);
+                                        token.div.insertBefore(nucleusPar, sub);
+                                    }
+
+                                    token.div.insertBefore(heightOffset, token.div.firstElementChild);
+
+                                    token.div.renderedDepth += (subHeight * (style == 'scriptscript' ? 1 : .707106781) - sub.baseline - sub.baselineOffset + sub.renderedDepth) * multiplier;
+                                    token.div.renderedHeight += (sup.baseline + sup.baselineOffset + sup.renderedHeight) * (style == 'scriptscript' ? 1 : .707106781) * multiplier;
                                 }
                             }
 
-                            renderElem(leftDelim, token.delims[0], true);
-                            renderElem(rightDelim, token.delims[1], false);
-                        }
+
+                            // If the current item is actually an \hbox, its width may need to be changed.
+                            if (box && box.boxType == 'horizontal') {
+                                // If the box is an \hbox that has been set "to" a width, (\hbox to ...), the width
+                                // is set directly on the element child.
+                                if (box.to) {
+                                    var width = new DimenReg(box.to);
+                                    width.em.value += width.sp.value / 65536 / 6 * 8 / fontSize * 65536;
+                                    width.sp.value = 0;
+                                } else if (box.spread) {
+                                    var width = new DimenReg(box.spread);
+                                    width.em.value += width.sp.value / 65536 / 6 * 8 / fontSize * 65536;
+                                    width.sp.value = 0;
+                                    var oldFontSize = token.div.style.fontSize;
+                                    token.div.style.fontSize = '50px';
+                                    container.appendChild(token.div);
+                                    var tokenWidth = token.div.getBoundingClientRect().width / 50;
+                                    container.removeChild(token.div);
+                                    token.div.style.fontSize = oldFontSize;
+                                    width.em.value += tokenWidth * 65536;
+                                }
+                                if (width.em.value < 0) {
+                                    items.splice(items.length - 1, 0, {
+                                        type: 'kern',
+                                        dimen: width
+                                    });
+                                    token.div.firstElementChild.style.width = 0;
+                                } else {
+                                    token.div.firstElementChild.style.width = width.em.value / 65536 + 'em';
+                                }
+                                token.div.firstElementChild.style.flexWrap = '';
+                            } else if (box && box.boxType == 'vertical') {
+                                if (box.to) {
+                                    var height = new DimenReg(box.to);
+                                    height.em.value += height.sp.value / 65536 / 6 * 8 / fontSize * 65536;
+                                    height.sp.value = 0;
+                                } else if (box.spread) {
+                                    var height = new DimenReg(box.spread);
+                                    height.em.value += height.sp.value / 65536 / 6 * 8 / fontSize * 65536;
+                                    height.sp.value = 0;
+                                    var oldFontSize = token.div.style.fontSize;
+                                    token.div.style.fontSize = '50px';
+                                    container.appendChild(token.div);
+                                    var tokenHeight = token.div.getBoundingClientRect().height / 50;
+                                    container.removeChild(token.div);
+                                    token.div.style.fontSize = oldFontSize;
+                                    height.em.value += tokenHeight * 65536;
+                                }
+
+                                if (height.em.value < 0) {
+                                    token.div.firstElementChild.style.height = 0;
+                                    token.div.firstElementChild.style.verticalAlign = 'text-bottom';
+                                    token.div.firstElementChild.style.position = 'relative';
+                                    token.div.firstElementChild.style.top = -height.em.value / 65536 + 'em';
+                                    token.div.renderedHeight = 0;
+                                    token.div.renderedDepth = 0;
+                                } else {
+                                    token.div.firstElementChild.style.height = height.em.value / 65536 + 'em';
+                                    token.div.firstElementChild.style.verticalAlign = 'text-bottom';
+                                    token.div.renderedDepth = Math.min(fontTeX.fontDimen.baselineHeightOf(family), height.em.value / 65536);
+                                    token.div.renderedHeight = Math.max(height.em.value / 65536 - fontTeX.fontDimen.baselineHeightOf(family), 0);
+                                }
+                                token.div.firstElementChild.style.flexWrap = '';
+                            }
 
 
-                        // At this point, a normal atom is done rendering. That includes Ord, Bin, Rel, Op,
-                        // etc. There are some special atoms though, like Vcent and Acc. Some atoms are
-                        // like Ord atoms but with extra processing. That processing happens here. If the
-                        // atom isn't special, this step is skipped.
-                        switch (token.atomType) {
-                            case 'rad':
-                                token.atomType = 0;
-                                break;
+                            // At this point, a normal atom is done rendering. That includes Ord, Bin, Rel, Op,
+                            // etc. There are some special atoms though, like Vcent and Acc. Some atoms are
+                            // like Ord atoms but with extra processing. That processing happens here. If the
+                            // atom isn't special, this step is skipped.
+                            switch (token.atomType) {
+                                case 'over':
+                                    // To overline an atom, an extra element is added at the front of `token.div' width
+                                    // width: 0. Inside that element, another element is added. This element will be
+                                    // allowed to grow to the atom's width. Inside that new element, a clone of the en-
+                                    // tire atom is added to give the element the correct width. Another element is
+                                    // added. It has position: absolute, left: 0 and right: 0. That lets it inherit the
+                                    // parent's width while not offsetting it with its own width. That absolutely pos-
+                                    // itioned atom gets a border-top that will act as the overline. This whole thing
+                                    // is like a simplified version of how fractions are rendered. Look through case: 8
+                                    // for more on how they're made.
 
-                            case 'over':
-                                // To overline an atom, an extra element is added at the front of `token.div' width
-                                // width: 0. Inside that element, another element is added. This element will be
-                                // allowed to grow to the atom's width. Inside that new element, a clone of the en-
-                                // tire atom is added to give the element the correct width. Another element is
-                                // added. It has position: absolute, left: 0 and right: 0. That lets it inherit the
-                                // parent's width while not offsetting it with its own width. That absolutely pos-
-                                // itioned atom gets a border-top that will act as the overline. This whole thing
-                                // is like a simplified version of how fractions are rendered. Look through case: 8
-                                // for more on how they're made.
+                                    // The atom's renderedHeight is set to the max of the atom's old renderedHeight and
+                                    // the ex height of the font. That ensures that all overlines will always be at
+                                    // least at half the ex height, even if the atom is just a space or something with
+                                    // no renderedHeight.
+                                    token.div.renderedHeight = Math.max(token.div.renderedHeight || 0, fontTeX.fontDimen.heightOf('x', family) / 2);
 
-                                // If an \overline is placed over an empty atom,
+                                    var overline = document.createElement('div'),
+                                        fullContainer = document.createElement('div'),
+                                        widthContainer = document.createElement('div'),
+                                        heightOffset = document.createElement('div'),
+                                        clone = noWrap(token.div.cloneNode(true));
 
-                                var overline = document.createElement('div'),
-                                    fullContainer = document.createElement('div'),
-                                    widthContainer = document.createElement('div'),
-                                    heightOffset = document.createElement('div'),
-                                    clone = noWrap(token.div.cloneNode(true));
+                                    fullContainer.style.display = 'inline-block';
+                                    fullContainer.style.width = fullContainer.style.height = 0;
+                                    fullContainer.style.position = 'relative';
+                                    fullContainer.style.top = -fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedHeight / multiplier - fontTeX.fontDimen.visibleWidthOf('|', family) - .12 + 'em';
+                                    fullContainer.style.verticalAlign = 'text-bottom';
+                                    fullContainer.style.pointerEvents = 'none';
+                                    widthContainer.style.display = 'inline-block';
+                                    widthContainer.style.webkitUserSelect =
+                                        widthContainer.style.mozUserSelect =
+                                        widthContainer.style.msUserSelect =
+                                        widthContainer.style.userSelect = 'none';
+                                    widthContainer.style.position = 'relative';
+                                    overline.style.position = 'absolute';
+                                    overline.style.left = overline.style.right = 0;
+                                    overline.style.borderTop = fontTeX.fontDimen.visibleWidthOf('|', family) + 'em solid currentColor';
+                                    widthContainer.appendChild(overline);
+                                    clone.style.visibility = 'hidden';
+                                    clone.style.fontSize = '';
+                                    widthContainer.appendChild(clone);
+                                    fullContainer.appendChild(widthContainer);
+                                    token.div.insertBefore(fullContainer, token.div.firstElementChild);
+                                    heightOffset.style.height = token.div.renderedHeight / multiplier + fontTeX.fontDimen.visibleWidthOf('|', family) + .16 + 'em';
+                                    heightOffset.style.display = 'inline-block';
+                                    heightOffset.style.width = 0;
+                                    token.div.insertBefore(heightOffset, fullContainer);
 
-                                fullContainer.style.display = 'inline-block';
-                                fullContainer.style.width = fullContainer.style.height = 0;
-                                fullContainer.style.position = 'relative';
-                                fullContainer.style.top = -fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedHeight / multiplier - fontTeX.fontDimen.visibleWidthOf('|', family) - .12 + 'em';
-                                fullContainer.style.verticalAlign = 'text-bottom';
-                                fullContainer.style.pointerEvents = 'none';
-                                widthContainer.style.display = 'inline-block';
-                                widthContainer.style.webkitUserSelect =
-                                    widthContainer.style.mozUserSelect =
-                                    widthContainer.style.msUserSelect =
-                                    widthContainer.style.userSelect = 'none';
-                                widthContainer.style.position = 'relative';
-                                overline.style.position = 'absolute';
-                                overline.style.left = overline.style.right = 0;
-                                overline.style.borderTop = fontTeX.fontDimen.visibleWidthOf('|', family) + 'em solid currentColor';
-                                widthContainer.appendChild(overline);
-                                clone.style.visibility = 'hidden';
-                                clone.style.fontSize = '';
-                                widthContainer.appendChild(clone);
-                                fullContainer.appendChild(widthContainer);
-                                token.div.insertBefore(fullContainer, token.div.firstElementChild);
-                                heightOffset.style.height = token.div.renderedHeight / multiplier + fontTeX.fontDimen.visibleWidthOf('|', family) + .16 + 'em';
-                                heightOffset.style.display = 'inline-block';
-                                heightOffset.style.width = 0;
-                                token.div.insertBefore(heightOffset, fullContainer);
+                                    token.div.renderedHeight += fontTeX.fontDimen.visibleWidthOf('|', family) + .16;
 
-                                token.div.renderedHeight += fontTeX.fontDimen.visibleWidthOf('|', family) + .16;
+                                    token.atomType = 0;
+                                    break;
 
-                                token.atomType = 0;
-                                break;
+                                case 'under':
+                                    // Underlined atoms are rendered much the same way as overline.
 
-                            case 'under':
-                                // Underlined atoms are rendered much the same way as overline.
+                                    token.div.renderedDepth = Math.max(token.div.renderedDepth || 0, 0);
 
-                                var underline = document.createElement('div'),
-                                    fullContainer = document.createElement('div'),
-                                    widthContainer = document.createElement('div'),
-                                    heightOffset = document.createElement('div'),
-                                    clone = noWrap(token.div.cloneNode(true));
+                                    var underline = document.createElement('div'),
+                                        fullContainer = document.createElement('div'),
+                                        widthContainer = document.createElement('div'),
+                                        heightOffset = document.createElement('div'),
+                                        clone = noWrap(token.div.cloneNode(true));
 
-                                fullContainer.style.display = 'inline-block';
-                                fullContainer.style.width = fullContainer.style.height = 0;
-                                fullContainer.style.position = 'relative';
-                                fullContainer.style.top = -fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedDepth / multiplier + .12 + 'em';
-                                fullContainer.style.verticalAlign = 'text-bottom';
-                                fullContainer.style.pointerEvents = 'none';
-                                widthContainer.style.display = 'inline-block';
-                                widthContainer.style.webkitUserSelect =
-                                    widthContainer.style.mozUserSelect =
-                                    widthContainer.style.msUserSelect =
-                                    widthContainer.style.userSelect = 'none';
-                                widthContainer.style.position = 'relative';
-                                underline.style.position = 'absolute';
-                                underline.style.left = underline.style.right = 0;
-                                underline.style.borderTop = fontTeX.fontDimen.visibleWidthOf('|', family) + 'em solid currentColor';
-                                widthContainer.appendChild(underline);
-                                clone.style.visibility = 'hidden';
-                                clone.style.fontSize = '';
-                                clone.style.height = 0;
-                                widthContainer.appendChild(clone);
-                                fullContainer.appendChild(widthContainer);
-                                token.div.insertBefore(fullContainer, token.div.firstElementChild);
-                                heightOffset.style.verticalAlign = 'text-top';
-                                heightOffset.innerText = '\u00A0';
-                                heightOffset.style.paddingBottom = fontTeX.fontDimen.visibleWidthOf('|', family) + .16 - fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedDepth / multiplier + 'em';
-                                heightOffset.style.display = 'inline-block';
-                                heightOffset.style.width = 0;
-                                token.div.insertBefore(heightOffset, fullContainer);
+                                    fullContainer.style.display = 'inline-block';
+                                    fullContainer.style.width = fullContainer.style.height = 0;
+                                    fullContainer.style.position = 'relative';
+                                    fullContainer.style.top = -fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedDepth / multiplier + .12 + 'em';
+                                    fullContainer.style.verticalAlign = 'text-bottom';
+                                    fullContainer.style.pointerEvents = 'none';
+                                    widthContainer.style.display = 'inline-block';
+                                    widthContainer.style.webkitUserSelect =
+                                        widthContainer.style.mozUserSelect =
+                                        widthContainer.style.msUserSelect =
+                                        widthContainer.style.userSelect = 'none';
+                                    widthContainer.style.position = 'relative';
+                                    underline.style.position = 'absolute';
+                                    underline.style.left = underline.style.right = 0;
+                                    underline.style.borderTop = fontTeX.fontDimen.visibleWidthOf('|', family) + 'em solid currentColor';
+                                    widthContainer.appendChild(underline);
+                                    clone.style.visibility = 'hidden';
+                                    clone.style.fontSize = '';
+                                    clone.style.height = 0;
+                                    widthContainer.appendChild(clone);
+                                    fullContainer.appendChild(widthContainer);
+                                    token.div.insertBefore(fullContainer, token.div.firstElementChild);
+                                    heightOffset.style.verticalAlign = 'text-top';
+                                    heightOffset.innerText = '\u00A0';
+                                    heightOffset.style.paddingBottom = fontTeX.fontDimen.visibleWidthOf('|', family) + .16 - fontTeX.fontDimen.baselineHeightOf(family) + token.div.renderedDepth / multiplier + 'em';
+                                    heightOffset.style.display = 'inline-block';
+                                    heightOffset.style.width = 0;
+                                    token.div.insertBefore(heightOffset, fullContainer);
 
-                                token.div.renderedDepth += fontTeX.fontDimen.visibleWidthOf('|', family) + .16;
+                                    token.div.renderedDepth += fontTeX.fontDimen.visibleWidthOf('|', family) + .16;
 
-                                token.atomType = 0;
-                                break;
+                                    token.atomType = 0;
+                                    break;
 
-                            case 'acc':
-                                // Accents are handled by simply placing the accent character right on top of the
-                                // current nucleus. Accent characters like "´" (acute, U+00B4) are already offset
-                                // above the text. There is still some vertical shift though so that the accent
-                                // goes on top `Math.max(the nucleus's height, the ex height of the font).'
+                                case 'acc':
+                                    // Accents are handled by simply placing the accent character right on top of the
+                                    // current nucleus. Accent characters like "´" (acute, U+00B4) are already offset
+                                    // above the text. There is still some vertical shift though so that the accent
+                                    // goes on top `Math.max(the nucleus's height, the ex height of the font).'
 
-                                var acc = document.createElement('div'),
-                                    spacer = document.createElement('div');
-                                acc.style.display = 'inline-block';
-                                acc.style.position = 'relative';
-                                if (font == 'it') acc.style.fontStyle = 'italic';
-                                else if (font == 'sl') acc.style.fontStyle = 'oblique';
-                                else if (font == 'bf') acc.style.fontWeight = 'bold';
-                                acc.style.top = Math.min(fontTeX.fontDimen.heightOf('x', family), token.div.renderedHeight) - token.div.renderedHeight + 'em';
-                                acc.style.width = 0;
-                                acc.style.lineHeight = 1.1;
-                                acc.style.height = '1.1em';
-                                acc.style.verticalAlign = 'text-bottom';
-                                acc.innerText = token.accChar;
-                                var offset = token.nucleus && (token.nucleus.type == 'symbol' && (font == 'it' || font == 'sl')) ? fontTeX.fontDimen.italCorrOf(token.accChar, family) : 0;
-                                offset = offset || (token.nucleus && token.nucleus.length == 1 && token.nucleus[0].nucleus && token.nucleus[0].nucleus.type == 'symbol' && token.nucleus[0].atomType == 7 && font == 'nm' ? fontTeX.fontDimen.italCorrOf(token.accChar, family) : 0);
-                                var oldFontSize = token.div.style.fontSize;
-                                token.div.style.fontSize = '50px';
-                                container.appendChild(token.div);
-                                acc.style.left = (token.div.getBoundingClientRect().width / 50 - fontTeX.fontDimen.widthOf(token.accChar, family, font)) / 2 + offset + 'em';
-                                container.removeChild(token.div);
-                                token.div.style.fontSize = oldFontSize;
-                                token.div.insertBefore(acc, token.div.firstElementChild);
-                                spacer.style.display = 'inline-block';
-                                spacer.style.width = 0;
-                                spacer.style.height = (token.div.renderedHeight - Math.min(fontTeX.fontDimen.heightOf('x', family), token.div.renderedHeight)) + fontTeX.fontDimen.heightOf(token.accChar, family, font) + 'em';
-                                token.div.insertBefore(spacer, acc);
+                                    var acc = document.createElement('div'),
+                                        spacer = document.createElement('div');
+                                    acc.style.display = 'inline-block';
+                                    acc.style.position = 'relative';
+                                    if (font == 'it') acc.style.fontStyle = 'italic';
+                                    else if (font == 'sl') acc.style.fontStyle = 'oblique';
+                                    else if (font == 'bf') acc.style.fontWeight = 'bold';
+                                    acc.style.top = Math.min(fontTeX.fontDimen.heightOf('x', family), token.div.renderedHeight) - token.div.renderedHeight + 'em';
+                                    acc.style.width = 0;
+                                    acc.style.lineHeight = 1.1;
+                                    acc.style.height = '1.1em';
+                                    acc.style.verticalAlign = 'text-bottom';
+                                    acc.innerText = token.accChar;
+                                    var offset = token.nucleus && (token.nucleus.type == 'symbol' && (font == 'it' || font == 'sl')) ? fontTeX.fontDimen.italCorrOf(token.accChar, family) : 0;
+                                    offset = offset || (token.nucleus && token.nucleus.length == 1 && token.nucleus[0].nucleus && token.nucleus[0].nucleus.type == 'symbol' && token.nucleus[0].atomType == 7 && font == 'nm' ? fontTeX.fontDimen.italCorrOf(token.accChar, family) : 0);
+                                    var oldFontSize = token.div.style.fontSize;
+                                    token.div.style.fontSize = '50px';
+                                    container.appendChild(token.div);
+                                    acc.style.left = (token.div.getBoundingClientRect().width / 50 - fontTeX.fontDimen.widthOf(token.accChar, family, font)) / 2 + offset + 'em';
+                                    container.removeChild(token.div);
+                                    token.div.style.fontSize = oldFontSize;
+                                    token.div.insertBefore(acc, token.div.firstElementChild);
+                                    spacer.style.display = 'inline-block';
+                                    spacer.style.width = 0;
+                                    spacer.style.height = (token.div.renderedHeight - Math.min(fontTeX.fontDimen.heightOf('x', family), token.div.renderedHeight)) + fontTeX.fontDimen.heightOf(token.accChar, family, font) + 'em';
+                                    token.div.insertBefore(spacer, acc);
 
-                                token.div.renderedHeight = (token.div.renderedHeight - Math.min(fontTeX.fontDimen.heightOf('x', family), token.div.renderedHeight)) + fontTeX.fontDimen.heightOf(token.accChar, family, font);
+                                    token.div.renderedHeight = (token.div.renderedHeight - Math.min(fontTeX.fontDimen.heightOf('x', family), token.div.renderedHeight)) + fontTeX.fontDimen.heightOf(token.accChar, family, font);
 
-                                token.atomType = 0;
-                                break;
+                                    token.atomType = 0;
+                                    break;
 
-                            case 'vcenter':
-                                // A vcenter atom vertically centers the atom on the line according to its height
-                                // and depth.
+                                case 'vcenter':
+                                    // A vcenter atom vertically centers the atom on the line according to its height
+                                    // and depth.
 
-                                var axisHeight = fontTeX.fontDimen.heightOf('x', family) / 2,
-                                    offset = (token.div.renderedHeight - axisHeight) - (token.div.renderedDepth + axisHeight);
+                                    var axisHeight = fontTeX.fontDimen.heightOf('x', family) / 2,
+                                        offset = (token.div.renderedHeight - axisHeight) - (token.div.renderedDepth + axisHeight);
 
-                                token.div.style.position = 'relative';
-                                token.div.style.top = offset / 2 + 'em';
+                                    token.div.style.position = 'relative';
+                                    token.div.style.top = offset / 2 + 'em';
 
-                                token.div.renderedHeight -= offset / 2;
-                                token.div.renderedDepth += offset / 2;
+                                    token.div.renderedHeight -= offset / 2;
+                                    token.div.renderedDepth += offset / 2;
 
-                                token.atomType = 0;
-                                break;
-                        }
+                                    token.atomType = 0;
+                                    break;
 
+                                case 'rad':
+                                    // Rad atoms are basically Over atoms but with an extra character in front of the
+                                    // atom. If fontTeX.config.buildradical is true, a canvas is used to construct an
+                                    // artificial radical symbol to look correctly aligned with the height of the atom.
+                                    // The user can opt out of that though by changing that setting to false. If it is
+                                    // set to false, a canvas is still used but instead of constructing a radical from
+                                    // a shape, plain text is inserted into the canvas with the radical symbol (U+221A)
+                                    // and stretched to match the height of the atom (it probably won't look correct
+                                    // though unless the character was made specifically to look right in that specific
+                                    // context).
+
+                                    // First an overline is added over the atom in exactly the same matter as if the
+                                    // atom had been an Over atom all along.
+                                    token.div.renderedHeight = Math.max(token.div.renderedHeight || 0, fontTeX.fontDimen.heightOf('x', family) / 2);
+                                    token.div.renderedDepth = Math.max(token.div.renderedDepth || 0, 0);
+
+                                    var overline = document.createElement('div'),
+                                        fullContainer = document.createElement('div'),
+                                        widthContainer = document.createElement('div'),
+                                        heightOffset = document.createElement('div'),
+                                        clone = noWrap(token.div.cloneNode(true));
+
+                                    fullContainer.style.display = 'inline-block';
+                                    fullContainer.style.width = fullContainer.style.height = 0;
+                                    fullContainer.style.position = 'relative';
+                                    fullContainer.style.top = -fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedHeight / multiplier - fontTeX.fontDimen.visibleWidthOf('|', family) - .12 + 'em';
+                                    fullContainer.style.verticalAlign = 'text-bottom';
+                                    fullContainer.style.pointerEvents = 'none';
+                                    widthContainer.style.display = 'inline-block';
+                                    widthContainer.style.webkitUserSelect =
+                                        widthContainer.style.mozUserSelect =
+                                        widthContainer.style.msUserSelect =
+                                        widthContainer.style.userSelect = 'none';
+                                    widthContainer.style.position = 'relative';
+                                    overline.style.position = 'absolute';
+                                    overline.style.left = overline.style.right = 0;
+                                    overline.style.borderTop = fontTeX.fontDimen.visibleWidthOf('|', family) + 'em solid currentColor';
+                                    widthContainer.appendChild(overline);
+                                    clone.style.visibility = 'hidden';
+                                    clone.style.fontSize = '';
+                                    widthContainer.appendChild(clone);
+                                    fullContainer.appendChild(widthContainer);
+                                    token.div.insertBefore(fullContainer, token.div.firstElementChild);
+                                    heightOffset.style.height = token.div.renderedHeight / multiplier + fontTeX.fontDimen.visibleWidthOf('|', family) + .16 + 'em';
+                                    heightOffset.style.display = 'inline-block';
+                                    heightOffset.style.width = 0;
+                                    token.div.insertBefore(heightOffset, fullContainer);
+
+                                    token.div.renderedHeight += (fontTeX.fontDimen.visibleWidthOf('|', family) + .16) * multiplier;
+
+                                    // Now that the atom has an overline on top of it, a <canvas> is added before the
+                                    // entire atom (even before the overline) and a radical is drawn inside of it. The
+                                    // canvas will stretch to fit the entire height of the atom.
+                                    var canvas = document.createElement('canvas'),
+                                        indexX = 0,
+                                        indexY = 0;
+                                    if (settings['radical.build'][0]) {
+                                        var barWidth = fontTeX.fontDimen.visibleWidthOf('|', family);
+                                        canvas.height = (token.div.renderedDepth + token.div.renderedHeight) * fontSize;
+                                        canvas.style.height = token.div.renderedDepth + token.div.renderedHeight + 'em';
+                                        canvas.style.position = 'relative';
+                                        canvas.style.top = token.div.renderedDepth + 'em';
+                                        canvas.style.marginLeft = '.1em';
+                                        canvas.style.marginTop = -token.div.renderedDepth + 'em';
+
+                                        // These variables are used to construct the radical and they correspond to the
+                                        // variables in the two Desmos graphs below in the `if' blocks.
+                                        var b = barWidth,
+                                            g = token.div.renderedHeight + token.div.renderedDepth - .04 - b / 2,
+                                            w = Math.max(settings['radical.w'][0]),
+                                            t = Math.max(0, Math.min(w, settings['radical.t'][0])),
+                                            h = Math.max(0, settings['radical.h'][0]),
+                                            v = g / Math.max(0, settings['radical.verticalthreshold'][0]),
+                                            sqrtv = Math.sqrt(v),
+                                            sqrt3 = Math.sqrt(3);
+
+                                        // If the height of the atom exceeds a certain height, the radical is rendered com-
+                                        // pletely vertical instead of sloped. That way, no matter how tall the atom is,
+                                        // the radical can always scale.
+                                        if (token.div.renderedHeight + token.div.renderedDepth < Math.max(0, settings['radical.verticalthreshold'][0])) {
+                                            // If the height of the atom doesn't exceed the threshold, it's rendered sloped in-
+                                            // stead of vertically. The closer the height is to the threshold, the stepper the
+                                            // slope of the radical. Once it reaches just under the threshold, the slope is
+                                            // almost straight up. If you mess with the `g' variable in the Desmos graph below,
+                                            // you can see how the radical gets stepper until it reaches completely vertical.
+                                            // Graph: https://www.desmos.com/calculator/azks7czhoq
+                                            h = Math.min(token.div.renderedHeight + token.div.renderedDepth, h / Math.max(settings['radical.verticalthreshold'][0], 0));
+                                            var o = (b * v * sqrt3) / (6 * v * v + 2);
+                                            canvas.width = ((-b * (t * (v - 1) - v * w - g * sqrtv + w)) / (2 * g) + o + w) * fontSize;
+                                            canvas.style.width = (-b * t * (v - 1) + b * v * w - w * (b - 2 * g) + g * (b + 2 * o)) / (2 * g) + 'em';
+                                            var context = canvas.getContext('2d');
+
+                                            var p1 = [
+                                                Math.max((-b * (t * (v - 1) - v * w - g * sqrtv + w)) / (2 * g), 0) + o + w,
+                                                g - b / 2
+                                            ], p3 = [
+                                                Math.min((-b * (-t * (v - 1) + v * w + g * sqrtv - w)) / (2 * g) + o + w, p1[0]),
+                                                g + b / 2
+                                            ], p4 = [
+                                                (-(4 * t * t * v * sqrt3 * (v - 1) * (v - 1) - t * (v - 1) * (4 * v * v * w * sqrt3 + 3 * b * sqrt3 * Math.pow(v, 1.5) - 4 * v * (g * (h - 1) - o * sqrt3) + 4 * g * h) - g * (4 * v * v * w * (h - 1) + b * Math.pow(v, 1.5) * (3 * h + 2) - 4 * v * (h * w - o * (h - 1)) - 3 * b * h * sqrtv - 4 * h * o))) / (4 * (sqrt3 * t * v * (v - 1) + g * (v * (h - 1) - h))),
+                                                -(h * g + v * t * sqrt3) / (v * (w - t)) * ((-(4 * t * t * v * sqrt3 * (v - 1) * (v - 1) - t * (v - 1) * (4 * v * v * w * sqrt3 + 3 * b * sqrt3 * Math.pow(v, 1.5) - 4 * v * (g * (h - 1) - o * sqrt3) + 4 * g * h) - g * (4 * v * v * w * (h - 1) + b * Math.pow(v, 1.5) * (3 * h + 2) - 4 * v * (h * w - o * (h - 1)) - 3 * b * h * sqrtv - 4 * h * o))) / (4 * (sqrt3 * t * v * (v - 1) + g * (v * (h - 1) - h))) - v * (w - t) - t - 3 * b * sqrtv / 4 - o)
+                                            ], p10 = [
+                                                Math.max(-t * (v - 1) + v * w + b / 2 * sqrtv + o, -p4[1] * (p3[0] - p4[0]) / (p3[1] - p4[1]) + p4[0] + p1[0] - (p3[0]-p4[0]) / (p3[1] - p4[1]) * (p1[1] - p4[1] + (p3[1] - p4[1]) / (p3[0] - p4[0]) * p4[0])),
+                                                0
+                                            ];
+
+                                            context.beginPath();
+                                            context.moveTo(
+                                                p1[0] * fontSize,
+                                                canvas.height - (p1[1]) * fontSize
+                                            );
+                                            context.lineTo(
+                                                ((-b * (t * (v - 1) - v * w - g * sqrtv + w)) / (2 * g) + o + w) * fontSize,
+                                                canvas.height - (g + b / 2) * fontSize
+                                            );
+                                            context.lineTo(
+                                                p3[0] * fontSize,
+                                                canvas.height - (p3[1]) * fontSize
+                                            );
+                                            context.lineTo(
+                                                p4[0] * fontSize,
+                                                canvas.height - (p4[1]) * fontSize
+                                            );
+                                            context.lineTo(
+                                                ((8 * t * t * v * sqrt3 * (v - 1) - t * (8 * v * v * w * sqrt3 + 6 * b * Math.pow(v, 1.5) * sqrt3 + v * (b + 8 *o * sqrt3) + 8 * g * h) + b * v * w - 6 * b * g * h * sqrtv - 8 * g * h * o) / (8 * (t * v * sqrt3 * (v - 1) - v * v * w * sqrt3 - g * h))) * fontSize,
+                                                canvas.height - (indexY = (v * sqrt3 * (8 * t * t * v * sqrt3 * (v - 1) - t * (8 * v * v * w * sqrt3 + 6 * b * Math.pow(v, 1.5) * sqrt3 + v * (b + 8 *o * sqrt3) + 8 * g * h) + b * v * w - 6 * b * g * h * sqrtv - 8 * g * h * o) / (8 * (t * v * sqrt3 * (v - 1) - v * v * w * sqrt3 - g * h)) + h * g + b / 8)) * fontSize
+                                            );
+                                            context.lineTo(
+                                                0,
+                                                canvas.height - (h * g + b / 8) * fontSize
+                                            );
+                                            context.lineTo(
+                                                2 * o * fontSize,
+                                                canvas.height - (h * g - b / 8) * fontSize
+                                            );
+                                            context.lineTo(
+                                                (8 * t * t * v * sqrt3 * (v - 1) - t * (8 * v * v * sqrt3 * (w - 2 * o) - 6 * b * Math.pow(v, 1.5) * sqrt3 - v * (b - 8 * o * sqrt3) + 8 * g * h) - 16 * o * v * v * w * sqrt3 - b * v * w + 6 * b * g * h * sqrtv - 8 * g * h * o) / (8 * (t * v * sqrt3 * (v - 1) - v * v * w * sqrt3 - g * h)) * fontSize,
+                                                canvas.height - (v * sqrt3 * ((8 * t * t * v * sqrt3 * (v - 1) - t * (8 * v * v * sqrt3 * (w - 2 * o) - 6 * b * Math.pow(v, 1.5) * sqrt3 - v * (b - 8 * o * sqrt3) + 8 * g * h) - 16 * o * v * v * w * sqrt3 - b * v * w + 6 * b * g * h * sqrtv - 8 * g * h * o) / (8 * (t * v * sqrt3 * (v - 1) - v * v * w * sqrt3 - g * h)) - 2 * o) + h * g - b / 8) * fontSize
+                                            );
+                                            context.lineTo(
+                                                (-t * (v - 1) + v * w - .75 * b * sqrtv + o) * fontSize,
+                                                canvas.height
+                                            );
+                                            context.lineTo(
+                                                p10[0] * fontSize,
+                                                canvas.height
+                                            );
+                                            context.closePath();
+                                            context.fill();
+                                            indexX = (p3[0] - p4[0]) / (p3[1] - p4[1]) * (indexY - p4[1]) + p4[0];
+                                        } else {
+                                            // The vertical radical is drawn to look like the Desmos graph below. The vertical
+                                            // line part goes on forever in the graph since there's no limit to its height, but
+                                            // when it's drawn on the canvas, it ends right above where the overline ends so
+                                            // that it looks like they connect.
+                                            // Graph: https://www.desmos.com/calculator/aracwrf7ss
+                                            h = Math.max(0, Math.min(g, settings['radical.h'][0]));
+                                            canvas.width = (8 * w + b * (4 + sqrt3)) / 8 * fontSize;
+                                            canvas.style.width = (8 * w + b * (4 + sqrt3)) / 8 + 'em';
+                                            var context = canvas.getContext('2d');
+
+                                            context.beginPath();
+                                            context.moveTo(
+                                                (w + (b * (sqrt3 + 4)) / 8) * fontSize,
+                                                .04 * fontSize
+                                            );
+                                            context.lineTo(
+                                                (w + (b * (sqrt3 - 4)) / 8) * fontSize,
+                                                .04 * fontSize
+                                            );
+                                            context.lineTo(
+                                                (w + (b * (sqrt3 - 4)) / 8) * fontSize,
+                                                canvas.height - ((5 * b * (h + t * sqrt3)) / (4 * (w - t))) * fontSize
+                                            );
+                                            context.lineTo(
+                                                (t * (4 * w * sqrt3 + b * (3 * sqrt3 + 2) + 4 * h) - b * (2 * w - 3 * h - 1.5 * w - h / 2 * sqrt3)) / (4 * (w * sqrt3 + h)) * fontSize,
+                                                canvas.height - (indexY = (((t * (4 * w * sqrt3 + b * (3 * sqrt3 + 2) + 4 * h) - b * (2 * w - 3 * h)) / (4 * (w * sqrt3 + h))) * sqrt3 + h + b / 2)) * fontSize
+                                            );
+                                            context.lineTo(
+                                                0,
+                                                canvas.height - (b / 8 + h) * fontSize
+                                            );
+                                            context.lineTo(
+                                                b * sqrt3 / 4 * fontSize,
+                                                canvas.height - (-b / 8 + h) * fontSize
+                                            );
+                                            context.lineTo(
+                                                (t * (4 * w * sqrt3 - b * (3 * sqrt3 + 2) + 4 * h) + b * (2 * w - 3 * h + 1.5 * w + h / 2 * sqrt3)) / (4 * (w * sqrt3 + h)) * fontSize,
+                                                canvas.height - (((t * (4 * w * sqrt3 - b * (3 * sqrt3 + 2) + 4 * h) + b * (2 * w - 3 * h)) / (4 * (w * sqrt3 + h))) * sqrt3 + h - b / 2) * fontSize
+                                            );
+                                            context.lineTo(
+                                                (w - (b * (6 - sqrt3)) / 8) * fontSize,
+                                                canvas.height
+                                            );
+                                            context.lineTo(
+                                                (w + (b * (sqrt3 + 4) / 8)) * fontSize,
+                                                canvas.height
+                                            );
+                                            context.closePath();
+                                            context.fill();
+                                            indexX = (w + (b * (sqrt3 - 4)) / 8);
+                                        }
+                                    } else {
+                                        canvas.height = (fontTeX.fontDimen.heightOf('√', family) + fontTeX.fontDimen.depthOf('√', family)) * fontSize;
+                                        canvas.width = fontTeX.fontDimen.widthOf('√', family) * fontSize;
+                                        var context = canvas.getContext('2d');
+                                        canvas.style.height = token.div.renderedHeight + token.div.renderedDepth + 'em';
+                                        canvas.style.width = fontTeX.fontDimen.widthOf('√', family) + 'em';
+                                        canvas.style.position = 'relative';
+                                        canvas.style.top = token.div.renderedDepth + 'em';
+                                        canvas.style.marginTop = -token.div.renderedDepth + 'em';
+                                        context.textAlign = 'center';
+                                        context.font = fontSize + 'px ' + family;
+                                        context.fillText('√', canvas.width / 2, canvas.height * (1 - fontTeX.fontDimen.depthOf('√', family)));
+                                    }
+                                    token.div.insertBefore(canvas, heightOffset);
+
+                                    if (token.index.length) {
+                                        var index = document.createElement('div');
+                                        index.style.display = 'inline-block';
+                                        index.style.position = 'relative';
+                                        newBox(token.index, 'scriptscript', false, font, index);
+
+                                        index.style.fontSize = '50px';
+                                        container.appendChild(index);
+                                        index.style.marginLeft = Math.max(-index.getBoundingClientRect().width / 50, -(indexX + .05) / (style == 'script' ? .707106781 : style == 'scriptscript' ? 1 : .5)) + 'em';
+                                        container.removeChild(index);
+                                        index.style.fontSize = (style == 'script' ? .707106781 : style == 'scriptscript' ? 1 : .5) + 'em';
+                                        index.style.top = (-Math.max(indexY - token.div.renderedDepth, fontTeX.fontDimen.heightOf('x', family) / 2) / (style == 'script' ? .707106781 : style == 'scriptscript' ? 1 : .5)) - index.renderedDepth - .1 + 'em';
+                                        index.style.left = (.05 + indexX) / (style == 'script' ? .707106781 : style == 'scriptscript' ? 1 : .5) + 'em';
+
+                                        token.div.insertBefore(index, canvas);
+                                    }
+
+                                    token.atomType = 0;
+                                    break;
+
+                            }
+                        } else parse1(11, i, l);
                         break;
+
+                    case 11:
+                        // This case handles rules from \hrule and \vrule. They're technically just boxes,
+                        // but they're handled differently here.
+
+                        if (token.type == 'rule') {
+                            var rule = document.createElement('div'),
+                                height = width = '100%',
+                                depth = '';
+                            rule.style.background = 'currentColor';
+
+                            if (token.height) {
+                                height = new DimenReg(token.height);
+                                height.em.value += height.sp.value / 65536 / 6 * 8 / fontSize * 65536;
+                                height = height.em.value / 65536;
+                            }
+                            if (token.depth) {
+                                depth = new DimenReg(token.depth);
+                                depth.em.value += depth.sp.value / 65536 / 6 * 8 / fontSize * 65536;
+                                depth = depth.em.value / 65536;
+                            }
+                            if (token.width) {
+                                width = new DimenReg(token.width);
+                                width.em.value += width.sp.value / 65536 / 6 * 8 / fontSize * 65536;
+                                width = width.em.value / 65536;
+                            }
+                            if (token.ruleType == 'v') {
+                                if (height == '100%') {
+                                    rule.style.alignSelf = 'stretch';
+                                    rule.renderedDepth = rule.renderedHeight = 0;
+                                } else {
+                                    rule.style.height = Math.max(height + depth, 0) + 'em';
+                                    rule.style.marginBottom = rule.style.top = depth + 'em';
+                                    rule.style.marginTop = -depth + 'em';
+                                    rule.style.position = 'relative';
+                                    rule.renderedHeight = Math.max(height, 0);
+                                    rule.renderedDepth = Math.max(depth, 0);
+                                }
+                                if (width < 0) {
+                                    items.add({
+                                        type: 'kern',
+                                        dimen: new DimenReg(0, width * 65536)
+                                    });
+                                } else rule.style.width = width + 'em';
+                            } else if (token.ruleType == 'h') {
+                                if (width == '100%') rule.style.width = '100%';
+                                else rule.style.width = width + 'em';
+                                rule.style.height = Math.max(height + depth, 0) + 'em';
+                                rule.style.marginBottom = rule.style.top = depth + 'em';
+                                rule.style.marginTop = -depth + 'em';
+                                rule.style.position = 'relative';
+                                items.push({
+                                    type: 'atom',
+                                    atomType: 0,
+                                    nucleus: {},
+                                    superscript: null,
+                                    subscript: null,
+                                    style: style,
+                                    isLineBreak: true,
+                                    div: document.createElement('div')
+                                });
+                                items[items.length - 1].div.style.width = '100%';
+                                atoms.push(items[items.length - 1]);
+                            }
+
+                            var atomWrapper = {
+                                type: 'atom',
+                                atomType: 0,
+                                nucleus: null,
+                                superscript: null,
+                                subscript: null,
+                                style: style,
+                                div: rule,
+                                isLineBreak: token.ruleType == 'h'
+                            }
+                            items.push(atomWrapper);
+                            atoms.push(atomWrapper);
+
+                            if (token.ruleType == 'h') {
+                                items.push({
+                                    type: 'atom',
+                                    atomType: 0,
+                                    nucleus: null,
+                                    superscript: null,
+                                    subscript: null,
+                                    isLineBreak: true,
+                                    div: document.createElement('div')
+                                });
+                                items[items.length - 1].div.style.width = '100%';
+                                atoms.push(items[items.length - 1]);
+                            }
+                        }
                 }
             }
 
@@ -5896,42 +6359,30 @@
                         // Render glues and kerns here.
                         if (token.italicCorrection) token.dimen = new DimenReg(0, fontTeX.fontDimen.italCorrOf(token.italicCorrection, family) * 65536);
 
-                        // This converts vertical glues into vertical kerns since they can't be stretched
-                        // or shrunk.
-                        if (token.type == 'vglue') {
-                            token.type = 'vkern';
-                            token.dimen = token.glue.start;
-                            delete token.glue;
-                        }
-
                         // Unstretchable/unshrinkable glues are automatically converted to kerns since they
                         // are exactly the same thing. Converting to a kern allows for negative widths
                         // without taking away any functionality.
-                        if (token.type == 'glue' && token.glue.start.type == 'dimension' && token.glue.stretch.sp.value == 0 && token.glue.stretch.em.value == 0 && token.glue.shrink.type == 'dimension' && token.glue.shrink.sp.value == 0 && token.glue.shrink.em.value == 0) {
+                        if (token.type == 'glue' && token.glue.stretch.type == 'dimension' && token.glue.stretch.sp.value == 0 && token.glue.stretch.em.value == 0 && token.glue.shrink.type == 'dimension' && token.glue.shrink.sp.value == 0 && token.glue.shrink.em.value == 0) {
                             token.type = 'kern';
                             token.dimen = token.glue.start;
                         }
 
                         if (token.type == 'vkern' && (token.dimen.sp.value || token.dimen.em.value)) {
-                            // If the token is a vertical kern (or former vertical glue), `verticalOffsets' is
+                            // If the token is a vertical kern (or former vertical glue), `verticalOffset' is
                             // added to so that it'll affect later items.
 
-                            verticalOffsets.sp += token.dimen.sp.value;
-                            verticalOffsets.em += token.dimen.em.value;
+                            verticalOffset += token.dimen.em.value;
+                            verticalOffset += token.dimen.sp.value / 65536 / 6 * 8 / fontSize * 65536;
                             childFlexes.push(document.createElement('div'));
                             childFlexes.last.style.display = 'inline-flex';
                             childFlexes.last.style.flexWrap = 'nowrap';
-                            if (verticalOffsets.sp || verticalOffsets.em) {
+                            childFlexes.last.style.alignItems = 'baseline';
+                            if (verticalOffset) {
                                 childFlexes.last.style.position = 'relative';
-                                childFlexes.last.style.marginTop = verticalOffsets.sp ?
-                                    verticalOffsets.em ? 'calc(' + verticalOffsets.sp / 65536 + 'pt + ' + verticalOffsets.em / 65536 + 'em)' :
-                                    verticalOffsets.sp / 65536 + 'pt' : verticalOffsets.em / 65536 + 'em';
-                                childFlexes.last.style.marginBottom = verticalOffsets.sp ?
-                                    verticalOffsets.em ? 'calc(' + -verticalOffsets.sp / 65536 + 'pt - ' + verticalOffsets.em / 65536 + 'em)' :
-                                    -verticalOffsets.sp / 65536 + 'pt' : -verticalOffsets.em / 65536 + 'em';
-                                childFlexes.last.style.top = verticalOffsets.sp ?
-                                    verticalOffsets.em ? 'calc(' + -verticalOffsets.sp / 65536 + 'pt - ' + verticalOffsets.em / 65536 + 'em)' :
-                                    -verticalOffsets.sp / 65536 + 'pt' : -verticalOffsets.em / 65536 + 'em';
+                                childFlexes.last.style.marginTop = verticalOffset / 65536 + 'em';
+                                childFlexes.last.style.marginBottom = -verticalOffset / 65536 + 'em';
+                                childFlexes.last.style.top = -verticalOffset / 65536 + 'em';
+                                childFlexes.last.verticalRaise = verticalOffset;
                             }
                         } else if (token.type == 'kern' && (token.dimen.sp.value || token.dimen.em.value)) {
                             // Kern items are added by adding a margin-right to the last used atom. This allows
@@ -5986,17 +6437,12 @@
                             childFlexes.last.style.display = 'inline-flex';
                             childFlexes.last.style.flexWrap = 'nowrap';
                             childFlexes.last.style.alignItems = 'baseline';
-                            if (verticalOffsets.sp || verticalOffsets.em) {
+                            if (verticalOffset) {
                                 childFlexes.last.style.position = 'relative';
-                                childFlexes.last.style.marginTop = verticalOffsets.sp ?
-                                    verticalOffsets.em ? 'calc(' + verticalOffsets.sp / 65536 + 'pt + ' + verticalOffsets.em / 65536 + 'em)' :
-                                    verticalOffsets.sp / 65536 + 'pt' : verticalOffsets.em / 65536 + 'em';
-                                childFlexes.last.style.marginBottom = verticalOffsets.sp ?
-                                    verticalOffsets.em ? 'calc(' + -verticalOffsets.sp / 65536 + 'pt - ' + verticalOffsets.em / 65536 + 'em)' :
-                                    -verticalOffsets.sp / 65536 + 'pt' : -verticalOffsets.em / 65536 + 'em';
-                                childFlexes.last.style.top = verticalOffsets.sp ?
-                                    verticalOffsets.em ? 'calc(' + -verticalOffsets.sp / 65536 + 'pt - ' + verticalOffsets.em / 65536 + 'em)' :
-                                    -verticalOffsets.sp / 65536 + 'pt' : -verticalOffsets.em / 65536 + 'em';
+                                childFlexes.last.style.marginTop = verticalOffset / 65536 + 'em';
+                                childFlexes.last.style.marginBottom = -verticalOffset / 65536 + 'em';
+                                childFlexes.last.style.top = -verticalOffset / 65536 + 'em';
+                                childFlexes.last.verticalRaise = verticalOffset;
                             }
                         }
 
@@ -6022,17 +6468,12 @@
                                 childFlexes.last.style.display = 'inline-flex';
                                 childFlexes.last.style.flexWrap = 'nowrap';
                                 childFlexes.last.style.alignItems = 'baseline';
-                                if (verticalOffsets.sp || verticalOffsets.em) {
+                                if (verticalOffset) {
                                     childFlexes.last.style.position = 'relative';
-                                    childFlexes.last.style.marginTop = verticalOffsets.sp ?
-                                        verticalOffsets.em ? 'calc(' + verticalOffsets.sp / 65536 + 'pt + ' + verticalOffsets.em / 65536 + 'em)' :
-                                        verticalOffsets.sp / 65536 + 'pt' : verticalOffsets.em / 65536 + 'em';
-                                    childFlexes.last.style.marginBottom = verticalOffsets.sp ?
-                                        verticalOffsets.em ? 'calc(' + -verticalOffsets.sp / 65536 + 'pt - ' + verticalOffsets.em / 65536 + 'em)' :
-                                        -verticalOffsets.sp / 65536 + 'pt' : -verticalOffsets.em / 65536 + 'em';
-                                    childFlexes.last.style.top = verticalOffsets.sp ?
-                                        verticalOffsets.em ? 'calc(' + -verticalOffsets.sp / 65536 + 'pt - ' + verticalOffsets.em / 65536 + 'em)' :
-                                        -verticalOffsets.sp / 65536 + 'pt' : -verticalOffsets.em / 65536 + 'em';
+                                    childFlexes.last.style.marginTop = verticalOffset / 65536 + 'em';
+                                    childFlexes.last.style.marginBottom = -verticalOffset / 65536 + 'em';
+                                    childFlexes.last.style.top = -verticalOffset / 65536 + 'em';
+                                    childFlexes.last.verticalRaise = verticalOffset;
                                 }
                             }
                             if (atomIndex != 0 && token.atomType == 3) {
@@ -6049,17 +6490,12 @@
                                 childFlexes.last.style.display = 'inline-flex';
                                 childFlexes.last.style.flexWrap = 'nowrap';
                                 childFlexes.last.style.alignItems = 'baseline';
-                                if (verticalOffsets.sp || verticalOffsets.em) {
+                                if (verticalOffset) {
                                     childFlexes.last.style.position = 'relative';
-                                    childFlexes.last.style.marginTop = verticalOffsets.sp ?
-                                        verticalOffsets.em ? 'calc(' + verticalOffsets.sp / 65536 + 'pt + ' + verticalOffsets.em / 65536 + 'em)' :
-                                        verticalOffsets.sp / 65536 + 'pt' : verticalOffsets.em / 65536 + 'em';
-                                    childFlexes.last.style.marginBottom = verticalOffsets.sp ?
-                                        verticalOffsets.em ? 'calc(' + -verticalOffsets.sp / 65536 + 'pt - ' + verticalOffsets.em / 65536 + 'em)' :
-                                        -verticalOffsets.sp / 65536 + 'pt' : -verticalOffsets.em / 65536 + 'em';
-                                    childFlexes.last.style.top = verticalOffsets.sp ?
-                                        verticalOffsets.em ? 'calc(' + -verticalOffsets.sp / 65536 + 'pt - ' + verticalOffsets.em / 65536 + 'em)' :
-                                        -verticalOffsets.sp / 65536 + 'pt' : -verticalOffsets.em / 65536 + 'em';
+                                    childFlexes.last.style.marginTop = verticalOffset / 65536 + 'em';
+                                    childFlexes.last.style.marginBottom = -verticalOffset / 65536 + 'em';
+                                    childFlexes.last.style.top = -verticalOffset / 65536 + 'em';
+                                    childFlexes.last.verticalRaise = verticalOffset;
                                 }
                             }
 
@@ -6109,7 +6545,13 @@
 
                             childFlexes.last.renderedHeight = Math.max(childFlexes.last.renderedHeight || 0, token.div.renderedHeight);
                             childFlexes.last.renderedDepth = Math.max(childFlexes.last.renderedDepth || 0, token.div.renderedDepth);
-                            childFlexes.last.baseline = Math.max(childFlexes.last.baseline || fontTeX.fontDimen.baselineHeightOf(family), token.div.baseline);
+                            if (childFlexes.last.baseline + childFlexes.last.baselineOffset > token.div.baseline + token.div.baselineOffset) {
+                                childFlexes.last.baseline = childFlexes.last.baseline || 0;
+                                childFlexes.last.baselineOffset = childFlexes.last.baselineOffset || 0;
+                            } else {
+                                childFlexes.last.baseline = token.div.baseline;
+                                childFlexes.last.baselineOffset = token.div.baselineOffset;
+                            }
 
                             // If the atom is an actual line break item (from "\\"), it should make a new flex
                             // box child just like with a Rel or Bin atom.
@@ -6119,17 +6561,12 @@
                                 childFlexes.last.style.display = 'inline-flex';
                                 childFlexes.last.style.flexWrap = 'nowrap';
                                 childFlexes.last.style.alignItems = 'baseline';
-                                if (verticalOffsets.sp || verticalOffsets.em) {
+                                if (verticalOffset) {
                                     childFlexes.last.style.position = 'relative';
-                                    childFlexes.last.style.marginTop = verticalOffsets.sp ?
-                                        verticalOffsets.em ? 'calc(' + verticalOffsets.sp / 65536 + 'pt + ' + verticalOffsets.em / 65536 + 'em)' :
-                                        verticalOffsets.sp / 65536 + 'pt' : verticalOffsets.em / 65536 + 'em';
-                                    childFlexes.last.style.marginBottom = verticalOffsets.sp ?
-                                        verticalOffsets.em ? 'calc(' + -verticalOffsets.sp / 65536 + 'pt - ' + verticalOffsets.em / 65536 + 'em)' :
-                                        -verticalOffsets.sp / 65536 + 'pt' : -verticalOffsets.em / 65536 + 'em';
-                                    childFlexes.last.style.top = verticalOffsets.sp ?
-                                        verticalOffsets.em ? 'calc(' + -verticalOffsets.sp / 65536 + 'pt - ' + verticalOffsets.em / 65536 + 'em)' :
-                                        -verticalOffsets.sp / 65536 + 'pt' : -verticalOffsets.em / 65536 + 'em';
+                                    childFlexes.last.style.marginTop = verticalOffset / 65536 + 'em';
+                                    childFlexes.last.style.marginBottom = -verticalOffset / 65536 + 'em';
+                                    childFlexes.last.style.top = -verticalOffset / 65536 + 'em';
+                                    childFlexes.last.verticalRaise = verticalOffset;
                                 }
                             } else {
                                 childFlexes.last.appendChild(token.div);
@@ -6145,17 +6582,12 @@
                                 childFlexes.last.style.display = 'inline-flex';
                                 childFlexes.last.style.flexWrap = 'nowrap';
                                 childFlexes.last.style.alignItems = 'baseline';
-                                if (verticalOffsets.sp || verticalOffsets.em) {
+                                if (verticalOffset) {
                                     childFlexes.last.style.position = 'relative';
-                                    childFlexes.last.style.marginTop = verticalOffsets.sp ?
-                                        verticalOffsets.em ? 'calc(' + verticalOffsets.sp / 65536 + 'pt + ' + verticalOffsets.em / 65536 + 'em)' :
-                                        verticalOffsets.sp / 65536 + 'pt' : verticalOffsets.em / 65536 + 'em';
-                                    childFlexes.last.style.marginBottom = verticalOffsets.sp ?
-                                        verticalOffsets.em ? 'calc(' + -verticalOffsets.sp / 65536 + 'pt - ' + verticalOffsets.em / 65536 + 'em)' :
-                                        -verticalOffsets.sp / 65536 + 'pt' : -verticalOffsets.em / 65536 + 'em';
-                                    childFlexes.last.style.top = verticalOffsets.sp ?
-                                        verticalOffsets.em ? 'calc(' + -verticalOffsets.sp / 65536 + 'pt - ' + verticalOffsets.em / 65536 + 'em)' :
-                                        -verticalOffsets.sp / 65536 + 'pt' : -verticalOffsets.em / 65536 + 'em';
+                                    childFlexes.last.style.marginTop = verticalOffset / 65536 + 'em';
+                                    childFlexes.last.style.marginBottom = -verticalOffset / 65536 + 'em';
+                                    childFlexes.last.style.top = -verticalOffset / 65536 + 'em';
+                                    childFlexes.last.verticalRaise = verticalOffset;
                                 }
                             }
                         }
@@ -6165,15 +6597,27 @@
 
             for (var i = 0, l = childFlexes.length; i < l; i++) {
                 flex.appendChild(childFlexes[i]);
-                flex.renderedHeight = Math.max(flex.renderedHeight || 0, childFlexes[i].renderedHeight || 0);
-                flex.renderedDepth = Math.max(flex.renderedDepth || 0, childFlexes[i].renderedDepth || 0);
-                flex.baseline = Math.max(flex.baseline || fontTeX.fontDimen.baselineHeightOf(family), childFlexes[i].baseline || fontTeX.fontDimen.baselineHeightOf(family));
+                flex.renderedHeight = Math.max(flex.renderedHeight || 0, (childFlexes[i].renderedHeight || 0) + (childFlexes[i].verticalRaise || 0) / 65536);
+                flex.renderedDepth = Math.max(flex.renderedDepth || 0, (childFlexes[i].renderedDepth || 0) - (childFlexes[i].verticalRaise || 0) / 65536);
+                if (flex.baselineOffset + flex.baseline > childFlexes[i].baselineOffset + childFlexes[i].baseline) {
+                    flex.baseline = flex.baseline || 0;
+                    flex.baselineOffset = flex.baselineOffset || 0;
+                } else {
+                    flex.baseline = childFlexes[i].baseline;
+                    flex.baselineOffset = childFlexes[i].baselineOffset;
+                }
             }
 
             parent.appendChild(flex);
             parent.renderedHeight = Math.max(parent.renderedHeight || 0, flex.renderedHeight);
             parent.renderedDepth = Math.max(parent.renderedDepth || 0, flex.renderedDepth);
-            parent.baseline = Math.max(parent.baseline || fontTeX.fontDimen.baselineHeightOf(family), flex.baseline);
+            if (parent.baselineOffset + parent.baseline > flex.baselineOffset + flex.baseline) {
+                parent.baseline = parent.baseline || 0;
+                parent.baselineOffset = parent.baselineOffset || 0;
+            } else {
+                parent.baseline = flex.baseline;
+                parent.baselineOffset = flex.baselineOffset
+            }
 
             return lastChar;
         }
@@ -6458,6 +6902,11 @@
 
                     e.scopes.last.barWidth = dimen;
 
+                    if (e.scopes.last.root) {
+                        e.scopes.last.root.invalid = true;
+                        e.scopes.last.root = false;
+                    }
+
                     e.scopes.last.fracNumerator = e.scopes.last.tokens;
                     e.scopes.last.tokens = [];
 
@@ -6510,6 +6959,11 @@
                     e.scopes.last.isFrac = true;
 
                     e.scopes.last.barWidth = dimen;
+
+                    if (e.scopes.last.root) {
+                        e.scopes.last.root.invalid = true;
+                        e.scopes.last.root = false;
+                    }
 
                     e.scopes.last.fracNumerator = e.scopes.last.tokens;
                     e.scopes.last.tokens = [];
@@ -6761,6 +7215,11 @@
                     // A regular "0" can be used here since CSS allows for unit-less zero values.
                     e.scopes.last.barWidth = new DimenReg(0);
 
+                    if (e.scopes.last.root) {
+                        e.scopes.last.root.invalid = true;
+                        e.scopes.last.root = false;
+                    }
+
                     e.scopes.last.fracNumerator = e.scopes.last.tokens;
                     e.scopes.last.tokens = [];
 
@@ -6802,6 +7261,11 @@
                     e.scopes.last.isFrac = true;
 
                     e.scopes.last.barWidth = new DimenReg(0);
+
+                    if (e.scopes.last.root) {
+                        e.scopes.last.root.invalid = true;
+                        e.scopes.last.root = false;
+                    }
 
                     e.scopes.last.fracNumerator = e.scopes.last.tokens;
                     e.scopes.last.tokens = [];
@@ -7073,6 +7537,8 @@
                             this.postPreamble = true;
                             return tokens.concat(this);
                         }
+
+                        if (e.scopes.last.root) e.scopes.last.root.invalid = true;
 
                         e.contexts.pop();
                         var tokens = e.scopes.last.tokens;
@@ -8256,6 +8722,8 @@
                         return [this];
                     }
 
+                    if (e.scopes.last.root) e.scopes.last.root.invalid = true;
+
                     e.openGroups.pop();
                     e.contexts.pop();
                     var tokens = e.scopes.last.tokens;
@@ -9138,7 +9606,7 @@
                             // Spit the token back out and let the parser make a group from the rest of the
                             // argument.
                             e.mouth.revert();
-                            return [];
+                            break;
                         } else {
                             // Some invalid token was found. The argument to \hbox wasn't correct and it should
                             // return invalid.
@@ -9156,10 +9624,12 @@
                         return [this];
                     }
 
-                    // If the "to" or "spread" value is 0, then it's the same thing as if it had just
-                    // been passed as \hbox{}, which means the tokens can be parsed as a regular group.
-                    if (!spread && to.sp.value == 0 && to.em.value == 0 || !to && spread.sp.value == 0 && spread.em.value == 0) {
-                        return [];
+                    // If the "spread" value is 0, then it's the same thing as if it had just been
+                    // passed as \hbox{}, which means the tokens can be parsed as a regular group.
+                    // "to" isn't checked for 0 because have \hbox to 0pt{} will make the box not
+                    // have any width as opposed to its natural width.
+                    if (!to && !spread) {
+                        spread = new DimenReg(0, 0);
                     }
                     // The next group of tokens will be parsed like normal and be placed in their own
                     // atom. A temporary token is created so that the next group atom after it (i.e.
@@ -9203,6 +9673,115 @@
                     e.tokens.push({
                         type: 'glue',
                         glue: new GlueReg(new DimenReg(0), new InfDimen(1, 2), new DimenReg(0))
+                    });
+                    return [];
+                }),
+                hrule: new Primitive('hrule', function(e) {
+                    // \hrule let's users make boxes of an exact height, depth, and width. The user
+                    // specifies dimensions using the "height", "depth", and "width" keywords, followed
+                    // by a dimension. If a dimension is missing, the following default dimensions are
+                    // used instead: height: 1/30em (scalable version of 0.4pt), depth: 0em, width:
+                    // 100% of the parent container.
+
+                    if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
+                        this.invalid = true;
+                        return [this];
+                    }
+
+                    var hruleSym = Symbol();
+                    e.mouth.saveState(hruleSym);
+
+                    var height = false,
+                        depth = false,
+                        width = false;
+
+                    while (true) {
+                        var token = e.mouth.eat();
+
+                        if (!token) {
+                            e.mouth.revert();
+                            break;
+                        }
+
+                        if ((token.char == 'h' || token.char == 'H') && token.cat != data.cats.active) {
+                            // If there is an "h", "eight" plus a dimension should follow. If that isn't what
+                            // follows, everything after the "h" is ignored.
+                            token = e.mouth.eat('pre space');
+                            if (token && (token.char == 'e' || token.char == 'E') && token.cat != data.cats.active) {
+                                token = e.mouth.eat('pre space');
+                                if (token && (token.char == 'i' || token.char == 'I') && token.cat != data.cats.active) {
+                                    token = e.mouth.eat('pre space');
+                                    if (token && (token.char == 'g' || token.char == 'G') && token.cat != data.cats.active) {
+                                        token = e.mouth.eat('pre space');
+                                        if (token && (token.char == 'h' || token.char == 'H') && token.cat != data.cats.active) {
+                                            token = e.mouth.eat('pre space');
+                                            if (token && (token.char == 't' || token.char == 'T') && token.cat != data.cats.active) {
+                                                token = e.mouth.eat('dimension');
+                                                if (token) {
+                                                    height = token;
+                                                    continue;
+                                                } else e.mouth.revert(6);
+                                            } else e.mouth.revert(token ? 6 : 5);
+                                        } else e.mouth.revert(token ? 5 : 4);
+                                    } else e.mouth.revert(token ? 4 : 3);
+                                } else e.mouth.revert(token ? 3 : 2);
+                            } else e.mouth.revert(token ? 2 : 1);
+                            break;
+                        } else if ((token.char == 'd' || token.char == 'D') && token.cat != data.cats.active) {
+                            // This does the same thing as above for "depth".
+                            token = e.mouth.eat('pre space');
+                            if (token && (token.char == 'e' || token.char == 'E') && token.cat != data.cats.active) {
+                                token = e.mouth.eat('pre space');
+                                if (token && (token.char == 'p' || token.char == 'P') && token.cat != data.cats.active) {
+                                    token = e.mouth.eat('pre space');
+                                    if (token && (token.char == 't' || token.char == 'T') && token.cat != data.cats.active) {
+                                        token = e.mouth.eat('pre space');
+                                        if (token && (token.char == 'h' || token.char == 'H') && token.cat != data.cats.active) {
+                                            token = e.mouth.eat('dimension');
+                                            if (token) {
+                                                depth = token;
+                                                continue;
+                                            } else e.mouth.revert(5);
+                                        } else e.mouth.revert(token ? 5 : 4);
+                                    } else e.mouth.revert(token ? 4 : 3);
+                                } else e.mouth.revert(token ? 3 : 2);
+                            } else e.mouth.revert(token ? 2 : 1);
+                            break;
+                        } else if ((token.char == 'w' || token.char == 'W') && token.cat != data.cats.active) {
+                            // This does the same thing as above for "width".
+                            token = e.mouth.eat('pre space');
+                            if (token && (token.char == 'i' || token.char == 'I') && token.cat != data.cats.active) {
+                                token = e.mouth.eat('pre space');
+                                if (token && (token.char == 'd' || token.char == 'D') && token.cat != data.cats.active) {
+                                    token = e.mouth.eat('pre space');
+                                    if (token && (token.char == 't' || token.char == 'T') && token.cat != data.cats.active) {
+                                        token = e.mouth.eat('pre space');
+                                        if (token && (token.char == 'h' || token.char == 'H') && token.cat != data.cats.active) {
+                                            token = e.mouth.eat('dimension');
+                                            if (token) {
+                                                width = token;
+                                                continue;
+                                            } else e.mouth.revert(5);
+                                        } else e.mouth.revert(token ? 5 : 4);
+                                    } else e.mouth.revert(token ? 4 : 3);
+                                } else e.mouth.revert(token ? 3 : 2);
+                            } else e.mouth.revert(token ? 2 : 1);
+                            break;
+                        } else {
+                            e.mouth.revert();
+                            break;
+                        }
+                    }
+
+                    height = height || new DimenReg(0, 65536 / 30);
+                    depth = depth || new DimenReg(0, 0);
+
+                    e.tokens.push({
+                        type: 'rule',
+                        ruleType: 'h',
+                        height: height,
+                        depth: depth,
+                        width: width
                     });
                     return [];
                 }),
@@ -9827,7 +10406,7 @@
                     return evalIf.call(this, true, e.mouth, e.scopes, sym);
                 }),
                 ifx: new Primitive('ifx', function(e) {
-                    // ifx compares characters and catcodes. If the two tokens are both characters,
+                    // \ifx compares characters and catcodes. If the two tokens are both characters,
                     // they must be the same exact token to evaluate to true. \ifx does not expand
                     // macros though. If two macros are found, their top-level expansion is compared.
                     // If \def\a{\b} \def\b{\d} \def\c{\d}, \ifx\b\c is true, but \ifx\a\b is false.
@@ -10899,6 +11478,32 @@
                         };
                     });
                 }),
+                of: new Primitive('of', function(e) {
+                    // This is the second part of \root. It isn't even a macro by itself in TeX, but
+                    // it's necessary here for the other part of \root. If a \root is open, then it's
+                    // closed and turned into a \radical. If a \root isn't open, it's marked as inval-
+                    // id.
+
+                    if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
+                        this.invalid = true;
+                        return [this];
+                    }
+
+                    if (e.scopes.last.root) {
+                        var index = e.scopes.last.tokens.indexOf(e.scopes.last.root);
+                        e.tokens.push({
+                            type: 'family modifier',
+                            value: 'rad',
+                            index: e.scopes.last.tokens.splice(index, e.scopes.last.tokens.length - index + 1).slice(1),
+                            token: this
+                        });
+                        e.scopes.last.root = false;
+                        return [];
+                    } else {
+                        this.invalid = true;
+                        return [this];
+                    }
+                }),
                 omit: new Primitive('omit', function(e) {
                     // \omit is used in \halign and is handled elsewhere (after a \cr or alignment to-
                     // ken).
@@ -10933,6 +11538,11 @@
                     e.scopes.last.fracLeftDelim = e.scopes.last.fracRightDelim = '.';
 
                     e.scopes.last.barWidth = 'from font';
+
+                    if (e.scopes.last.root) {
+                        e.scopes.last.root.invalid = true;
+                        e.scopes.last.root = false;
+                    }
 
                     e.scopes.last.fracNumerator = e.scopes.last.tokens;
                     e.scopes.last.tokens = [];
@@ -10992,6 +11602,11 @@
                     e.scopes.last.isFrac = true;
 
                     e.scopes.last.barWidth = 'from font';
+
+                    if (e.scopes.last.root) {
+                        e.scopes.last.root.invalid = true;
+                        e.scopes.last.root = false;
+                    }
 
                     e.scopes.last.fracNumerator = e.scopes.last.tokens;
                     e.scopes.last.tokens = [];
@@ -11072,6 +11687,8 @@
                             e.openGroups.pop();
                             e.contexts.pop();
                             var tokens = e.scopes.last.tokens;
+
+                            if (e.scopes.last.root) e.scopes.last.root.invalid = true;
 
                             if (e.scopes.last.isFrac) {
                                 // These two shifts get rid of the "\left" token and the left delimiter token.
@@ -11472,7 +12089,7 @@
                     // \halign function. If it's found in the table's body, it'll be handled here. If
                     // it's not even found in a \halign in the first place, it's invalid. If a \span is
                     // found in the table's body inside a cell, it acts like a regular alignment token.
-                    // The only difference is that the two cells one either side of it are joined into
+                    // The only difference is that the two cells on either side of it are joined into
                     // one. Everything that happens for an alignment token also happens for this, ex-
                     // cept the creation of a new cell.
 
@@ -11507,6 +12124,8 @@
                         this.postPreamble = true;
                         return tokens.concat(this);
                     }
+
+                    if (e.scopes.last.root) e.scopes.last.root.invalid = true;
 
                     e.contexts.pop();
                     var tokens = e.scopes.last.tokens;
@@ -11648,9 +12267,35 @@
                     e.tokens.push({
                         type: 'family modifier',
                         value: 'rad',
+                        index: [],
                         token: this
                     });
                     return [];
+                }),
+                root: new Primitive('root', function(e) {
+                    // \root is normally an extension of \radical that displays a small exponent above
+                    // the radical sign. It's another version of LaTeX's \sqrt command. In TeX, it's
+                    // implemented as a macro that makes heavy use of boxes. Since boxes aren't really
+                    // here in this version, there's no real way of doing it other than as a primitive.
+
+                    if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
+                        this.invalid = true;
+                        return [this];
+                    }
+
+                    // If another \root is already open, but hasn't been closed by a \of yet, the cur-
+                    // rent \root is invalid. Consider the following syntax: \root1\root2\of3\of4. The
+                    // second \root is invalid because the first \root will be closed by the first \of,
+                    // since TeX wouldn't consider nesting while scanning for a macro. Then, the second
+                    // \root wouldn't have a closing \of, so it would be marked as invalid.
+                    if (e.scopes.last.root) {
+                        this.invalid = true;
+                        return [this];
+                    }
+
+                    this.ignore = true;
+                    e.scopes.last.root = this;
+                    return [this];
                 }),
                 string: new Primitive('string', function(e) {
                     // \string returns a list of catcode 12 tokens that represent the next token. If
@@ -11951,7 +12596,7 @@
                             }
                         } else if (token.type == 'character' && token.cat == data.cats.open) {
                             e.mouth.revert();
-                            return [];
+                            break;
                         } else {
                             this.invalid = true;
                             e.mouth.loadState(vboxSym);
@@ -11964,7 +12609,7 @@
                         e.mouth.loadState(vboxSym);
                         return [this];
                     }
-                    if (!spread && to.sp.value == 0 && to.em.value == 0 || !to && spread.sp.value == 0 && spread.em.value == 0) return [];
+                    if (!to && !spread) spread = new DimenReg(0, 0);
                     e.tokens.push({
                         type: 'box wrapper',
                         value: 'vertical',
@@ -12016,6 +12661,111 @@
                     e.tokens.push({
                         type: 'vglue',
                         glue: new GlueReg(new DimenReg(0), new InfDimen(1, 2), new DimenReg(0))
+                    });
+                    return [];
+                }),
+                vrule: new Primitive('vrule', function(e) {
+                    // \vrule works like \hrule except it stretched to 100% vertically instead of hor-
+                    // izontally.
+
+                    if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
+                        this.invalid = true;
+                        return [this];
+                    }
+
+                    var hruleSym = Symbol();
+                    e.mouth.saveState(hruleSym);
+
+                    var height = false,
+                        depth = false,
+                        width = false;
+
+                    while (true) {
+                        var token = e.mouth.eat();
+
+                        if (!token) {
+                            e.mouth.revert();
+                            break;
+                        }
+
+                        if ((token.char == 'h' || token.char == 'H') && token.cat != data.cats.active) {
+                            // If there is an "h", "eight" plus a dimension should follow. If that isn't what
+                            // follows, everything after the "h" is ignored.
+                            token = e.mouth.eat('pre space');
+                            if (token && (token.char == 'e' || token.char == 'E') && token.cat != data.cats.active) {
+                                token = e.mouth.eat('pre space');
+                                if (token && (token.char == 'i' || token.char == 'I') && token.cat != data.cats.active) {
+                                    token = e.mouth.eat('pre space');
+                                    if (token && (token.char == 'g' || token.char == 'G') && token.cat != data.cats.active) {
+                                        token = e.mouth.eat('pre space');
+                                        if (token && (token.char == 'h' || token.char == 'H') && token.cat != data.cats.active) {
+                                            token = e.mouth.eat('pre space');
+                                            if (token && (token.char == 't' || token.char == 'T') && token.cat != data.cats.active) {
+                                                token = e.mouth.eat('dimension');
+                                                if (token) {
+                                                    height = token;
+                                                    continue;
+                                                } else e.mouth.revert(6);
+                                            } else e.mouth.revert(token ? 6 : 5);
+                                        } else e.mouth.revert(token ? 5 : 4);
+                                    } else e.mouth.revert(token ? 4 : 3);
+                                } else e.mouth.revert(token ? 3 : 2);
+                            } else e.mouth.revert(token ? 2 : 1);
+                            break;
+                        } else if ((token.char == 'd' || token.char == 'D') && token.cat != data.cats.active) {
+                            // This does the same thing as above for "depth".
+                            token = e.mouth.eat('pre space');
+                            if (token && (token.char == 'e' || token.char == 'E') && token.cat != data.cats.active) {
+                                token = e.mouth.eat('pre space');
+                                if (token && (token.char == 'p' || token.char == 'P') && token.cat != data.cats.active) {
+                                    token = e.mouth.eat('pre space');
+                                    if (token && (token.char == 't' || token.char == 'T') && token.cat != data.cats.active) {
+                                        token = e.mouth.eat('pre space');
+                                        if (token && (token.char == 'h' || token.char == 'H') && token.cat != data.cats.active) {
+                                            token = e.mouth.eat('dimension');
+                                            if (token) {
+                                                depth = token;
+                                                continue;
+                                            } else e.mouth.revert(5);
+                                        } else e.mouth.revert(token ? 5 : 4);
+                                    } else e.mouth.revert(token ? 4 : 3);
+                                } else e.mouth.revert(token ? 3 : 2);
+                            } else e.mouth.revert(token ? 2 : 1);
+                            break;
+                        } else if ((token.char == 'w' || token.char == 'W') && token.cat != data.cats.active) {
+                            // This does the same thing as above for "width".
+                            token = e.mouth.eat('pre space');
+                            if (token && (token.char == 'i' || token.char == 'I') && token.cat != data.cats.active) {
+                                token = e.mouth.eat('pre space');
+                                if (token && (token.char == 'd' || token.char == 'D') && token.cat != data.cats.active) {
+                                    token = e.mouth.eat('pre space');
+                                    if (token && (token.char == 't' || token.char == 'T') && token.cat != data.cats.active) {
+                                        token = e.mouth.eat('pre space');
+                                        if (token && (token.char == 'h' || token.char == 'H') && token.cat != data.cats.active) {
+                                            token = e.mouth.eat('dimension');
+                                            if (token) {
+                                                width = token;
+                                                continue;
+                                            } else e.mouth.revert(5);
+                                        } else e.mouth.revert(token ? 5 : 4);
+                                    } else e.mouth.revert(token ? 4 : 3);
+                                } else e.mouth.revert(token ? 3 : 2);
+                            } else e.mouth.revert(token ? 2 : 1);
+                            break;
+                        } else {
+                            e.mouth.revert();
+                            break;
+                        }
+                    }
+
+                    width = width || new DimenReg(0, 65536 / 30);
+
+                    e.tokens.push({
+                        type: 'rule',
+                        ruleType: 'v',
+                        height: height,
+                        depth: depth,
+                        width: width
                     });
                     return [];
                 }),
@@ -12480,7 +13230,7 @@
                 open  = '([{`',
                 close = '}])!?',
                 punct = ',;',
-                vari  = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZαβγδϵεζηθϑικλμνξπϖρϱσςτυϕφχψω'
+                vari  = 'abcdefghħijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZαβγδϵεζηθϑικλμνξπϖρϱσςτυϕφχψω'
             for (var i = 0, l = op.length; i < l; i++) {
                 obj[op.charCodeAt(i)] = new IntegerReg(1, 0, 8);
             }
@@ -12863,7 +13613,7 @@
     // To hopefully make it a little easter to read, there's a comment at the end of
     // the string that's been formatted to look like real TeX (and includes TeX com-
     // ments explaining what's happening).
-    fontTeX._tokenize.global('\n\
+    fontTeX.format('\n\
         \\def\\makeatletter{\\catcode `\\@=11\\relax}\n\
         \\def\\makeatother{\\catcode `\\@=12\\relax}\n\
         \\makeatletter\n\
@@ -12969,13 +13719,18 @@
         \\chardef\\updownarrow="2195\n\
         \\chardef\\Updownarrow="21D5\n\
         \\mathchardef\\alpha="003B1\n\
+        \\mathchardef\\angle="02220\n\
         \\mathchardef\\beta="003B2\n\
         \\mathchardef\\chi="003C7\n\
+        \\mathchardef\\clubsuit="02663\n\
         \\mathchardef\\colon="6003A\n\
         \\mathchardef\\delta="003B4\n\
+        \\mathchardef\\diamondsuit="02662\n\
         \\mathchardef\\epsilon="003F5\n\
         \\mathchardef\\eta="003B7\n\
         \\mathchardef\\gamma="003B3\n\
+        \\mathchardef\\hbar="70127\n\
+        \\mathchardef\\heartsuit="02661\n\
         \\mathchardef\\imath="70131\n\
         \\mathchardef\\intop="1222B \\def\\int{\\intop\\nolimits}\n\
         \\mathchardef\\iota="003B9\n\
@@ -13016,6 +13771,7 @@
         \\mathchardef\\Pi="003A0\n\
         \\mathchardef\\Psi="003A8\n\
         \\mathchardef\\Sigma="003A3\n\
+        \\mathchardef\\spadesuit="02660\n\
         \\mathchardef\\Theta="00398\n\
         \\mathchardef\\Upsilon="003A5\n\
         \\mathchardef\\Xi="0039E\n\
@@ -13085,7 +13841,9 @@
         \\def\\skew#1#2#3{\
             {\\muskip0 #1mu\\divide\\muskip0by2 \\mkern\\muskip0%\n\
             #2{\\mkern-\\muskip0{#3}\\mkern\\muskip0}\\mkern-\\muskip0}{}}\n\
+        \\def\\strut{\\vrule height.708333333emdepth.291666666emwidth0pt\\relax}\n\
         \\def\\sup{\\mathop{\\rm sup}}\n\
+        \\def\\surd{{\\mathchar"1221A}}\n\
         \\def\\t{\\accent"0311 }\n\
         \\def\\tan{\\mathop{\\rm tan}\\nolimits}\n\
         \\def\\tanh{\\mathop{\\rm tanh}\\nolimits}\n\
@@ -13096,6 +13854,8 @@
         \\let\\bgroup={\n\
         \\let\\egroup=}\n\
         \\let\\endline=\\cr\n\
+        \\let\\sb=^\n\
+        \\let\\sp=_\n\
         \\let\\repeat=\\fi\n\
         \\def\\obeyspaces{\\catcode`\\ =13\\relax}\n\
         \\catcode`\\ =12\\def\\space{ }\\obeyspaces\\let =\\space\n\
@@ -13113,7 +13873,6 @@
         \\mathcode`\\⋅=8 \\catcode`\\⋅=\\active\n\
         \\def⋅{\\mathchoice{\\mathbin{\\vcenter.}}{\\mathbin{\\vcenter.}}{{\\vcenter.}}{{\\vcenter.}}}\n\
         \\catcode`\\⋅=12\n\
-        \\def\\strut{\\vbox to 1.1em{}}\n\
         \\newcount\\mscount\n\
         \\def\\multispan#1{\\omit \\mscount#1\\relax\\loop\\ifnum\\mscount>1\\sp@n\\repeat}\n\
         \\def\\sp@n{\\span\\omit\\advance\\mscount-1}\n\
@@ -13141,7 +13900,7 @@
             \\def\\@ifnextchar@false{#3}\n\
             \\futurelet\\@ifnextchar@chartwo\\@ifnextchar@check}\n\
         \\def\\@ifnextchar@check{\
-            \\if\\@ifnextchar@charone\\@ifnextchar@chartwo\\@ifnextchar@true\\else\\@ifnextchar@false\\fi\
+            \\ifx\\@ifnextchar@charone\\@ifnextchar@chartwo\\@ifnextchar@true\\else\\@ifnextchar@false\\fi\
         }\n\
         \\def\\newcommand#1{\\@ifnextchar[{\\@newcommand#1}{\\@newcommand#1[0]}}\n\
         \\def\\@newcommand#1[#2]{\
@@ -13192,7 +13951,7 @@
                 \\noexpand\\expandafter\\def\
                 \\noexpand\\csname\\noexpand\\string\\noexpand#1\\endcsname\\@paramnums@bracket#2}\n\
             \\@newcommand@make}\n\
-        \\newcommand\\sqrt[2][]{\\radical#2}\n\
+        \\newcommand\\sqrt[1][]{\\root #1\\of }}\n\
         \\makeatother\
     ', 'display');
 
