@@ -20,7 +20,7 @@
     // If, for whatever reason, someone loaded two version of fontTeX, the one with the
     // latest version number wins. They're compared as string instead of numbers to
     // handle version numbers with double digits like 1.10.15.
-    var current = '0.4';
+    var current = '0.4.1';
     if (fontTeX.version) {
         if (current.split('.').map(function(number) {
             return String.fromCharCode(48 + +number);
@@ -5910,7 +5910,6 @@
 
                                     token.div.renderedHeight += fontTeX.fontDimen.visibleWidthOf('|', family) + .16;
 
-                                    token.atomType = 0;
                                     break;
 
                                 case 'under':
@@ -5955,7 +5954,6 @@
 
                                     token.div.renderedDepth += fontTeX.fontDimen.visibleWidthOf('|', family) + .16;
 
-                                    token.atomType = 0;
                                     break;
 
                                 case 'acc':
@@ -5993,7 +5991,6 @@
 
                                     token.div.renderedHeight = (token.div.renderedHeight - Math.min(fontTeX.fontDimen.heightOf('x', family), token.div.renderedHeight)) + fontTeX.fontDimen.heightOf(token.accChar, family, font);
 
-                                    token.atomType = 0;
                                     break;
 
                                 case 'vcenter':
@@ -6009,7 +6006,6 @@
                                     token.div.renderedHeight -= offset / 2;
                                     token.div.renderedDepth += offset / 2;
 
-                                    token.atomType = 0;
                                     break;
 
                                 case 'rad':
@@ -6246,7 +6242,6 @@
                                         token.div.insertBefore(index, canvas);
                                     }
 
-                                    token.atomType = 0;
                                     break;
 
                             }
@@ -6516,7 +6511,7 @@
                                         6: {0:  0, 1:  0,        3:  0, 4:  0, 5:  0, 6:  0, 7:  0, inner:  0},
                                         7: {0:  0, 1:  1, 2:  0, 3:  0, 4:  0, 5:  0, 6:  0, 7:  0, inner: -1},
                                     inner: {0: -1, 1:  1, 2:  0, 3:  0, 4: -1, 5:  0, 6: -1, 7: -1, inner: -1}
-                                    })[left][right],
+                                    })[typeof left == 'string' && left != 'inner' ? 0 : left][typeof right == 'string' && right != 'inner' ? 0 : right],
                                     space = document.createElement('div');
                                 if (spacing < 0) {
                                     if (token.style == 'script' || token.style == 'scriptscript') spacing = 0;
@@ -13600,7 +13595,6 @@
                     tokens.push(token);
                 }
             }
-            return tokens;
         }
     }
 
@@ -13613,7 +13607,7 @@
     // To hopefully make it a little easter to read, there's a comment at the end of
     // the string that's been formatted to look like real TeX (and includes TeX com-
     // ments explaining what's happening).
-    fontTeX.format('\n\
+    fontTeX.format('\
         \\def\\makeatletter{\\catcode `\\@=11\\relax}\n\
         \\def\\makeatother{\\catcode `\\@=12\\relax}\n\
         \\makeatletter\n\
@@ -13797,6 +13791,7 @@
         \\def\\cdotp{\\mathpunct{\\vcenter.}}}\n\
         \\def\\cdots{\\mathinner{\\cdotp\\cdotp\\cdotp}}\n\
         \\def\\check{\\accent"02C7 }\n\
+        \\def\\cong{\\mathrel{\\tilde=}}\n\
         \\def\\cos{\\mathop{\\rm cos}\\nolimits}\n\
         \\def\\cosh{\\mathop{\\rm cosh}\\nolimits}\n\
         \\def\\cot{\\mathop{\\rm cot}\\nolimits}\n\
@@ -13830,6 +13825,7 @@
         \\def\\lq{`}\n\
         \\def\\max{\\mathop{\\rm max}}\n\
         \\def\\min{\\mathop{\\rm min}}\n\
+        \\def\\not{\\@ifnextchar={\\char"2260\\@gobble}{\\hbox to 0pt{/}}}\n\
         \\def\\null{\\hbox{}}\n\
         \\def\\pmod#1{\\mkern18mu({\\rm mod}\\,\\,#1)}\n\
         \\def\\Pr{\\mathop{\\rm Pr}}\n\
@@ -14005,11 +14001,11 @@
             // Set the font that the width will be measured in. Since the returned value is in
             // pixels, 1px is used so that the returned width will be a ratio of the charac-
             // ter's width to it height.
-            this.context.font = (style || '') + ' 1px ' + family;
+            this.context.font = (style || '') + ' 500px ' + family;
             this.cache[family] = this.cache[family] || {};
             this.cache[family][style] = this.cache[family][style] || {}
             this.cache[family][style][string] = this.cache[family][style][string] || {};
-            return this.cache[family][style][string].width = this.context.measureText(string).width;
+            return this.cache[family][style][string].width = this.context.measureText(string).width / 500;
         },
         visibleWidthOf: function(string, family, style) {
             if (!this.isInit) this.init();
