@@ -20,7 +20,7 @@
     // If, for whatever reason, someone loaded two version of fontTeX, the one with the
     // latest version number wins. They're compared as string instead of numbers to
     // handle version numbers with double digits like 1.10.15.
-    var current = '0.4.1';
+    var current = '0.4.2';
     if (fontTeX.version) {
         if (current.split('.').map(function(number) {
             return String.fromCharCode(48 + +number);
@@ -36,16 +36,7 @@
     // The user can change some of the options on fontTeX to configure it to how they
     // want it to behave.
     fontTeX.config = function(name, value) {
-        var keys = [
-            'autoupdate.enabled',
-            'autoupdate.rate',
-            'parsehtml',
-            'radical.build',
-            'radical.w',
-            'radical.t',
-            'radical.h',
-            'radical.verticalthreshold'
-        ], returnValue = null;
+        var keys = Object.keys(settings), returnValue = null;
         if (typeof name == 'string' && keys.includes(name.toLowerCase())) {
             if (arguments.length > 1) {
                 value = settings[name.toLowerCase()][1](value);
@@ -77,6 +68,10 @@
                 styleChangeListener.interval = setInterval(styleChangeListener.listener, styleChangeListener.rate);
                 styleChangeListener.listener();
             } else styleChangeListener.interval = 0;
+        } else {
+            for (var data = styleChangeListener.data, i = 0, l = data.length, updates = 0; i < l; i++) {
+                data[i].texInstance.renderIn(data[i].elem);
+            }
         }
 
         return returnValue;
@@ -91,7 +86,9 @@
         'radical.w': [0.5, Number],
         'radical.t': [0.15, Number],
         'radical.h': [1.25, Number],
-        'radical.verticalthreshold': [2.75, Number]
+        'radical.verticalthreshold': [2.75, Number],
+        'operator.growamount': [1.75, Number],
+        'operator.growchars': ['∑∫∏∐', String]
     };
 
     // `styleChangeListener' is an object dedicated to listening for style changes in
@@ -105,10 +102,11 @@
         rate: settings['autoupdate.rate'][0],
         listener: function updateTeX() {
             for (var data = styleChangeListener.data, i = 0, l = data.length, updates = 0; i < l; i++) {
-                if (data[i].styles.fontSize != data[i].oldFontSize || data[i].styles.fontFamily != data[i].oldFontFamily) {
+                if (data[i].styles.fontSize != data[i].oldFontSize || data[i].styles.fontFamily != data[i].oldFontFamily || data[i].styles.color != data[i].oldColor) {
                     data[i].texInstance.renderIn(data[i].elem);
                     data[i].oldFontSize = data[i].styles.fontSize;
                     data[i].oldFontFamily = data[i].styles.fontFamily;
+                    data[i].oldColor = data[i].styles.color;
                     updates++;
                 }
             }
@@ -316,6 +314,26 @@
         return new fontTeX.ParsedFontTeX(origString, content);
     };
 
+    // The `renderSelf' function takes an element and converts it into a TeX container,
+    // using its own HTML as the input string. This lets you type the TeX into the HTML
+    // markup itself so that it can be rendered later. It takes the same form of argu-
+    // ment as `ParsedFontTeX.in' (a string, element, or list of elements).
+    fontTeX.renderSelf = function renderWithin(elementsOrString) {
+        var arg = elementsOrString;
+        if (typeof arg == 'string') {
+            return this.renderSelf(document.querySelectorAll(arg));
+        } else if (arg instanceof HTMLElement) {
+            return this.renderSelf([arg]);
+        } else if (!isNaN(arg.length)) {
+            for (var i = 0, l = arg.length; i < l; i++) {
+                var TeX = arg[i].getAttribute('data-fontTeX-input');
+                TeX === null && (TeX = arg[i].innerHTML);
+                fontTeX.render(TeX).in(arg[i]);
+                arg[i].setAttribute('data-fontTeX-input', TeX);
+            }
+        }
+    }
+
     // This class is used by `fontTeX.render'. It includes methods that let the devel-
     // oper display parsed TeX inside elements.
     fontTeX.ParsedFontTeX = function ParsedFontTeX(string, tokens) {
@@ -361,7 +379,8 @@
                             styles: data[index].styles,
                             texInstance: this,
                             oldFontFamily: cssDeclaration.fontFamily,
-                            oldFontSize: cssDeclaration.fontSize
+                            oldFontSize: cssDeclaration.fontSize,
+                            oldColor: cssDeclaration.color
                         };
                     } else {
                         var data = styleChangeListener.data,
@@ -374,7 +393,8 @@
                             styles: cssDeclaration,
                             texInstance: this,
                             oldFontFamily: cssDeclaration.fontFamily,
-                            oldFontSize: cssDeclaration.fontSize
+                            oldFontSize: cssDeclaration.fontSize,
+                            oldColor: cssDeclaration.oldColor
                         };
                     }
 
@@ -450,6 +470,8 @@
                             arg[i].appendChild(div.firstChild);
                         }
                     }
+
+                    arg[i].setAttribute('data-fontTeX-input', this.TeXstring);
                 }
             }
         },
@@ -469,14 +491,18 @@
             // helpful for new definitions that weren't there the first time the string was
             // parsed, or for certain registers, like \time, which changes every minute.
             // There is a `rerender' alias function that can be used instead.
+            this.parsedTokens = fontTeX.render(this.TeXstring).parsedTokens;
+            return this;
         },
         rerender: function() {
             // This method will take the original string of TeX and reparse it. This can be
             // helpful for new definitions that weren't there the first time the string was
             // parsed, or for certain registers, like \time, which changes every minute.
             // There is an `again' alias function that can be used instead.
-            this.again.apply(this, arguments);
-        }
+            return this.again.apply(this, arguments);
+        },
+        TeXstring: '',
+        parsedTokens: null
     }
 
 
@@ -1421,9 +1447,9 @@
                                 continue;
                             } else if ((context == 'start' || context == 'signs') && token.cat == data.cats.all && token.char == '-') {
                                 sign *= -1;
-                                context == 'signs';
+                                context = 'signs';
                             } else if ((context == 'start' || context == 'signs') && token.cat == data.cats.all && token.char == '+') {
-                                context == 'signs';
+                                context = 'signs';
                             } else if ((context == 'start' || context == 'signs') && token.register && token.type == 'glue') {
                                 start = new DimenReg(token.start.sp.value * sign, token.start.em.value * sign);
                                 stretch = new DimenReg(token.stretch.sp.value * sign, token.stretch.em.value * sign);
@@ -1627,9 +1653,9 @@
                                 continue;
                             } else if ((context == 'start' || context == 'signs') && token.cat == data.cats.all && token.char == '-') {
                                 sign *= -1;
-                                context == 'signs';
+                                context = 'signs';
                             } else if ((context == 'start' || context == 'signs') && token.cat == data.cats.all && token.char == '+') {
-                                context == 'signs';
+                                context = 'signs';
                             } else if ((context == 'start' || context == 'signs') && token.register && token.type == 'mu glue') {
                                 start = new MuDimenReg(token.start.mu.value * sign);
                                 stretch = new MuDimenReg(token.stretch.mu.value * sign);
@@ -3727,6 +3753,11 @@
         function collapseAtoms(tokens) {
             for (var i = 0, l = tokens.length; i < l; i++) {
                 if (tokens[i].type == 'atom') {
+                    if (Array.isArray(tokens[i].nucleus)) collapseAtoms(tokens[i].nucleus);
+                    if (Array.isArray(tokens[i].superscript)) collapseAtoms(tokens[i].superscript);
+                    if (Array.isArray(tokens[i].subscript)) collapseAtoms(tokens[i].subscript);
+                    if (Array.isArray(tokens[i].index)) collapseAtoms(tokens[i].index);
+
                     if (Array.isArray(tokens[i].nucleus) && tokens[i].nucleus.length == 1) {
                         if ([0,2,3,4,5,6,'inner'].includes(tokens[i].nucleus[0].atomType) && !['over','under','rad'].includes(tokens[i].atomType)) {
                             if (!tokens[i].nucleus[0].superscript && !tokens[i].nucleus[0].subscript) {
@@ -3754,30 +3785,24 @@
                                 i--;
                                 continue;
                             }
-                        } else if (tokens[i].nucleus[0].atomType == 1 && !['over','under','rad'].includes(tokens[i].atomType)) {
-                            if (!tokens[i].nucleus[0].superscript && !tokens[i].nucleus[0].subscript) {
-                                tokens[i].nucleus = tokens[i].nucleus[0].nucleus;
-                                i--;
-                                continue;
-                            } else if (!tokens[i].superscript && !tokens[i].subscript && !tokens[i].nucleus[0].limits) {
-                                tokens[i].superscript = tokens[i].nucleus[0].superscript;
-                                tokens[i].subscript = tokens[i].nucleus[0].subscript;
-                                tokens[i].nucleus = tokens[i].nucleus[0].nucleus;
-                                i--;
-                                continue;
-                            }
                         } else if (tokens[i].nucleus[0].atomType != 7 && ['over','under','rad','accent'].includes(tokens[i].atomType)) {
                             if (!tokens[i].nucleus[0].superscript && !tokens[i].nucleus[0].subscript) {
                                 tokens[i].nucleus = tokens[i].nucleus[0].nucleus;
                             }
                         }
                     }
-
-                    if (Array.isArray(tokens[i].nucleus)) collapseAtoms(tokens[i].nucleus);
-                    if (Array.isArray(tokens[i].superscript)) collapseAtoms(tokens[i].superscript);
-                    if (Array.isArray(tokens[i].subscript)) collapseAtoms(tokens[i].subscript);
-                    if (Array.isArray(tokens[i].index)) collapseAtoms(tokens[i].index);
                 } else if (tokens[i].type == 'fraction') {
+                    if (tokens[i].numerator && Array.isArray(tokens[i].numerator) &&
+                        tokens[i].numerator.length == 1 && !tokens[i].numerator.subscript &&
+                        !tokens[i].numerator.superscript && Array.isArray(tokens[i].numerator[0].nucleus)) {
+                        tokens[i].numerator = tokens[i].numerator[0].nucleus;
+                    }
+                    if (tokens[i].denominator && Array.isArray(tokens[i].denominator.nucleus) &&
+                        tokens[i].denominator.length == 1 && !tokens[i].denominator.subscript &&
+                        !tokens[i].denominator.superscript && Array.isArray(tokens[i].denominator[0].nucleus)) {
+                        tokens[i].denominator = tokens[i].denominator[0].nucleus;
+                    }
+
                     collapseAtoms(tokens[i].numerator);
                     collapseAtoms(tokens[i].denominator);
                 } else if (tokens[i].type == 'table') {
@@ -4189,59 +4214,31 @@
                             newBox(token.numerator, style == 'display' ? 'text' : style == 'text' ? 'script' : 'scriptscript', cramped, font, numer);
                             newBox(token.denominator, style == 'display' ? 'text' : style == 'text' ? 'script' : 'scriptscript', true, font, denom);
 
-                            // This is where the fraction bar's width goes from a `DimenReg' to a CSS width
-                            // string. A fraction bar from \over is chosen based on the font. Em units for the
-                            // fraction bar are scaled down if the numerator and denominator are being scaled
-                            // down. In \displaystyle and \scripscriptstyle, the numerator and denominator re-
-                            // main the same size, so no scaling is needed. The other styles though get their
-                            // fraction parts scaled down, so it would only make sense that the bar gets scaled
-                            // down too (since em units are relative to the font). Also, absolute units like px
-                            // are also converted to em based on the font size of `container'. In other areas
-                            // of the script, elements are measured using .getBoundingClientRect() and their
-                            // heights are stored in em units so that the TeX can scale up if necessary instead
-                            // of being stuck in px units. The problem with that is that absolute units in the
-                            // bar's width aren't scalable. After being converted to em, the display will still
-                            // look exactly the same. If the font-size of the container is changed, the bar's
-                            // width will also scale up temporarily. After the auto updater sees that there's
-                            // been a style change though, the whole thing will be re-rendered and the bar
-                            // width will go back to its absolute units.
+                            // The bar of the fraction may already have a set height or be determined by the
+                            // font. If the height includes absolute units like pt, they are converted to em
+                            // for easier scaling and measuring. It should end up looking the same size anyway.
                             var barWidthDimen = token.barWidth == 'from font' ? new DimenReg(0, fontTeX.fontDimen.visibleWidthOf('|', family) * 65536) : new DimenReg(token.barWidth);
                             barWidthDimen.em.value += barWidthDimen.sp.value / 65536 / 6 * 8 / fontSize * 65536;
                             barWidthDimen.sp.value = 0;
-                            var unscaledBarWidth = barWidthDimen.sp.value ?
-                                    barWidthDimen.em.value ? 'calc(' + barWidthDimen.em.value / 65536 + 'em + ' + barWidthDimen.sp.value / 65536 + 'pt)' :
-                                    barWidthDimen.sp.value / 65536 + 'pt' : barWidthDimen.em.value / 65536 + 'em';
-                            if (style == 'text' || style == 'script') barWidthDimen.em.value *= .707106781;
-                            var barWidth = barWidthDimen.sp.value ?
-                                barWidthDimen.em.value ? 'calc(' + barWidthDimen.em.value / 65536 + 'em + ' + barWidthDimen.sp.value / 65536 + 'pt)' :
-                                barWidthDimen.sp.value / 65536 + 'pt' : barWidthDimen.em.value / 65536 + 'em';
+                            var unscaledBarWidth = barWidthDimen.em.value / 65536 + 'em';
+                            var barWidth = barWidthDimen.em.value * (style == 'text' || style == 'script' ? .707106781 : 1) / 65536 + 'em';
 
-                            // This code snippet takes measurements of the numerator and denominator for pos-
-                            // itioning and for calculating height and depth. Since the bar's width may be de-
-                            // pendent on the font size (it can have em units), simply setting everything to
-                            // font size 10px and dividing by 10 doesn't work. Instead, they are measured at
-                            // the font size they will end up being displayed as.
-                            var emRef = document.createElement('div');
-                            emRef.style.height = '1em';
-                            container.appendChild(emRef);
-                            var emPx = emRef.getBoundingClientRect().height;
-                            emRef.style.height = barWidth;
-                            emRef.style.fontSize = style == 'script' || style == 'scriptscript' ? '.707106781em' : '1em';
-                            var finalBarWidth = emRef.getBoundingClientRect().height;
-                            emRef.style.height = '1em';
-                            finalBarWidth /= emRef.getBoundingClientRect().height;
-                            container.removeChild(emRef);
-                            container.appendChild(numer);
-                            var numerDimens = numer.getBoundingClientRect(),
-                                numerWidth = numer.getBoundingClientRect().width,
-                                numerScaledHeight = numerDimens.height / emPx * (style == 'text' || style == 'script' ? .707106781 : 1);
-                            container.removeChild(numer);
+                            // The heights and widths of the numerators and denominators are measured here. The
+                            // widths are important to determine which is the thicker of the two. The height is
+                            // important later for positioning them so that they touch the bar perfectly.
+                            var finalBarWidth = barWidthDimen.em.value * (style == 'script' || style == 'scriptscript' ? .707106781 : 1) / 65536;
                             container.appendChild(denom);
-                            var denomDimens = denom.getBoundingClientRect(),
-                                denomHeight = denomDimens.height / emPx,
-                                denomWidth = denomDimens.width,
-                                denomScaledHeight = denomHeight * (style == 'text' || style == 'script' ? .707106781 : 1);
+                            container.appendChild(numer);
+                            var numerWidth = numer.offsetWidth,
+                                numerHeight = numer.offsetHeight / fontSize,
+                                numerScaledHeight = numerHeight * (style == 'text' || style == 'script' ? .707106781 : 1),
+                                numerScaledWidth = numerWidth * (style == 'text' || style == 'script' ? .707106781 : 1),
+                                denomHeight = denom.offsetHeight / fontSize,
+                                denomWidth = denom.offsetWidth,
+                                denomScaledHeight = denomHeight * (style == 'text' || style == 'script' ? .707106781 : 1),
+                                denomScaledWidth = denomWidth * (style == 'text' || style == 'script' ? .707106781 : 1);
                             container.removeChild(denom);
+                            container.removeChild(numer);
 
                             // Measurements have been gotten. Now add some style for the numerator and denomin-
                             // ator.
@@ -4275,11 +4272,9 @@
                             // the middle of the line with no height. It has a border-top with the width of
                             // the bar and its background color set to the color of its parents (so that it
                             // takes the same color as the text instead of the background). Within that elem-
-                            // ent is another. Its only purpose is to give the bar its width. The thicker of
-                            // the numerator and denominator is copied and placed inside the third element.
-                            // It'll grow and inherit the width of the whole fraction, giving its parent (the
-                            // one with the border-top) the same width so that the whole bar will stretch to
-                            // fill the entire fraction.
+                            // ent is another. It gives the bar its width. Since we already measured the widths
+                            // earlier, we can just set a width on the bar in terms of em units so that it can
+                            // scale if necessary.
                             var barCont = document.createElement('div'),
                                 bar = document.createElement('div'),
                                 widthCont = document.createElement('div');
@@ -4302,7 +4297,7 @@
                                 barCont.style.mozUserSelect =
                                 barCont.style.msUserSelect =
                                 barCont.style.userSelect = 'none';
-                            widthCont.appendChild(noWrap(thicker.cloneNode(true)));
+                            widthCont.style.width = Math.max(numerScaledWidth, denomScaledWidth) / fontSize + 'em';
                             bar.appendChild(widthCont);
                             barCont.appendChild(bar);
                             token.div.appendChild(barCont);
@@ -4312,72 +4307,34 @@
                             // this. It's mostly for me anyway if I ever come back to it and need to know
                             // what's going on.
 
-                            // Now that the bar has been added, the numerator and denominator need to be added
-                            // one on top of the other. They;re placed the same way stacked sub/superscripts
-                            // are placed. (If you don't know how those are placed, go to case: 10 of this
-                            // whole `switch'. That's where atoms' nuclei and scripts are created.) The only
-                            // difference here is that the thinner part of the fraction needs to be centered
-                            // (which actually takes more work than you'd think). Fractions are special from
-                            // other things in that the thinner of the numerator/denominator parts SHOULD re-
-                            // spect glues. Outside of a fraction, a glue acts just like a kern since it can't
-                            // really be stretched. In a fraction though, since both parts have a defined width
-                            // that won't change because of a line wrap, glues should be able to alter the pos-
-                            // itioning of parts in a fraction. The thicker part of a fraction doesn't have any
-                            // extra space, so glues don't really matter there. In the thinner part, there will
-                            // (probably) be extra space that glues should stretch to fill up. To allow for
-                            // that AND to make it the text in a part centered by default, there needs to be a
-                            // lot of elements and workarounds. Basically, the thicker part of a fraction is
-                            // set just like normal without any messing around with it. The thinner part though
-                            // is what gets changed. For the rest of this example, the numeration (`numer') is
-                            // assumed to be the thinner of the two (i.e. `thinner' == `numer'). `numer' is a
-                            // <div> with a single flex box <div> child. That flex box needs to be stretched
-                            // to be the same width as `denom'. That way, all its parts and glues will be
-                            // stretched as well (the glues will actually act like glues instead of kerns).
-                            // First, `numer' needs to be stretched to match the width of `denom'. A container
-                            // element is made. Inside that container, a (hidden) clone of `denom' is placed so
-                            // that the container will adopt its width. Now, we need to get the original flex
-                            // box child from before in there so that it can also inherit the same width. But
-                            // just adding it directly will affect the width of the containing element, so we
-                            // need to add it such that it won't add on any extra width (but we can't set its
-                            // CSS width property to 0 because it ALSO needs the width of the container). To
-                            // get around that, another container element is made. Its position is set to abso-
-                            // lute so that it won't add any width to the parent. Setting its width to 100%
-                            // doesn't work though because its absolutely positioned. Instead, both its left
-                            // and right properties are set to 0, which allows it to stretch to the full width
-                            // of the parent containing element (even though its the full width, it doesn't
-                            // add any extra width to the parent because its absolutely positioned). NOW, the
-                            // flex box is set inside there with width: 100% so that it now has the full width
-                            // of the overall fraction. Glues can now stretch. But height is still a problem.
-                            // Since the flex box is inside a position: absolute element, its height doesn't
-                            // affect the fraction now. We get around this the same way as the width: we make a
-                            // clone of the flex box and we add it inside another element with width: 0. That
-                            // element now has the correct height of the numerator of the fraction and no
-                            // width, so it won't affect the overall containing element's width. That's added
-                            // alongside the position: absolute element. Now, finally, the containing element
-                            // has the correct height, width, and a stretched version of `numer'. It can now
-                            // be added to the fraction. It's placed inside the original `numer' element (which
-                            // has a width of 0 so as not to offset `denom' when they're placed). The last
-                            // thing is just to center the flex box by default so that `numer' appears in the
-                            // middle of the fraction, not the left. To do that, two artificial glue items are
-                            // added to the display flex box: one before and one after. Now, even if there are
-                            // no glues present, the `numer' will still be rendered in the middle of the frac-
-                            // tion because the two glues will fill and center it. Most of the extra styling
-                            // stuff below is to make sure things appear properly vertically.
+                            // To get the two parts of the fraction aligned on top of each other AND to make
+                            // glues stretchable/shrinkable, there are a bunch of elements that go into the
+                            // process. `thinner' is the thinner of the numerator and denominator, `thicker' is
+                            // the thicker of the two. `thinner' is the only one that actually needs to change
+                            // so that it can be stretched since `thicker' is already at its full width. To
+                            // give the fraction its width (so that elements after it won't overlap), only the
+                            // width of `thicker' is used. `thinner' is placed first with width: 0. After that,
+                            // `thicker' is placed so that it overlaps `thinner'. Since `thicker' has its norm-
+                            // al width though, the whole fraction adapts that width. Inside of `thinner', the
+                            // box is unwrapped and placed inside another container that will have a larger
+                            // width. That way, any glues inside the box will grow. To make the parent get the
+                            // correct width (the width of `thicker' so that they both have the same width),
+                            // another element is placed inside that container. It will have the same width as
+                            // `thicker'. The box that was unwrapped has its own width though that adds to the
+                            // width of its parent. To stop that, it gets position: absolute. Now the height of
+                            // the parent needs to be set to the correct height though (since the unwrapped box
+                            // lost its height along with its width). The element that has its width set also
+                            // has its height set to match the height of the unwrapped box. Now that spacing
+                            // has been taken care of, an extra stretchable glue is added on both sides of the
+                            // unwrapped box. That way, if there is no glue within the box, it will still be
+                            // rendered in the center.
 
                             var thinContainer = document.createElement('div'),
-                                cloneContainer = document.createElement('div'),
                                 flexContainer = document.createElement('div'),
-                                heightContainer = document.createElement('div'),
+                                spacingOffset = document.createElement('div'),
                                 flexChild = thinner.firstElementChild,
-                                clone1 = noWrap(thicker.cloneNode(true)),
-                                clone2 = noWrap(thinner.cloneNode(true)),
                                 startGrower = document.createElement('div'),
                                 endGrower = document.createElement('div');
-                            clone1.style.fontSize = clone2.style.fontSize = '';
-                            clone2.style.paddingTop = 0;
-                            clone2.style.margin = 0;
-                            clone2.style.border = 0;
-                            clone2.style.padding = 0;
                             if (flexChild) {
                                 flexChild.style.width = '100%';
                                 flexChild.insertBefore(startGrower, flexChild.firstElementChild);
@@ -4385,30 +4342,17 @@
                                 flexContainer.appendChild(flexChild);
                             }
                             thinContainer.style.position = 'relative';
-                            cloneContainer.style.height = 0;
-                            cloneContainer.style.verticalAlign = 'middle';
-                            cloneContainer.style.display = 'inline-block';
-                            cloneContainer.style.visibility = 'hidden';
-                            cloneContainer.style.webkitUserSelect =
-                                cloneContainer.style.mozUserSelect =
-                                cloneContainer.style.msUserSelect =
-                                cloneContainer.style.userSelect =
-                                heightContainer.style.webkitUserSelect =
-                                heightContainer.style.mozUserSelect =
-                                heightContainer.style.msUserSelect =
-                                heightContainer.style.userSelect = 'none';
                             thinContainer.style.display = 'inline-block';
-                            heightContainer.style.display = 'inline-block';
-                            heightContainer.style.width = 0;
-                            heightContainer.style.visibility = 'hidden';
+                            spacingOffset.style.display = 'inline-block';
+                            spacingOffset.style.width = 0;
+                            spacingOffset.style.height = (numerWidth > denomWidth ? denomHeight : numerHeight) + 'em';
+                            spacingOffset.innerHTML = '\u00A0';
+                            spacingOffset.style.width = Math.max(numerWidth, denomWidth) / fontSize + 'em';
                             flexContainer.style.position = 'absolute';
                             startGrower.style.flexGrow = endGrower.style.flexGrow = startGrower.style.flexShrink = endGrower.style.flexShrink = 1;
                             thinner.style.width = flexContainer.style.left = flexContainer.style.right = flexContainer.style.top = 0;
-                            heightContainer.appendChild(clone2);
-                            thinContainer.appendChild(heightContainer);
                             thinContainer.appendChild(flexContainer);
-                            cloneContainer.appendChild(clone1);
-                            thinContainer.appendChild(cloneContainer);
+                            thinContainer.appendChild(spacingOffset);
                             thinner.appendChild(thinContainer);
                             token.div.appendChild(thinner);
                             token.div.appendChild(thicker);
@@ -4733,7 +4677,7 @@
                             token.div.renderedDepth = ((denomScaledHeight - fontTeX.fontDimen.heightOf('x', family) / 2 + finalBarWidth / 2) + (-denom.baseline - denom.baselineOffset + denom.renderedDepth) * (style == 'text' || style == 'script' ? .707106781 : 1)) * multiplier;
                             token.div.renderedHeight = ((fontTeX.fontDimen.heightOf('x', family) / 2 + finalBarWidth / 2) + (numer.baseline + numer.baselineOffset + numer.renderedHeight) * (style == 'text' || style == 'script' ? .707106781 : 1)) * multiplier;
                             token.div.baseline = denom.baseline * multiplier * (style == 'text' || style == 'script' ? .707106781 : 1);
-                            token.div.baselineOffset = ((denomScaledHeight - fontTeX.fontDimen.heightOf('x', family) / 2 + finalBarWidth / 2) - denom.baseline * (style == 'text' || style == 'script' ? .70716781 : 1)) * multiplier;
+                            token.div.baselineOffset = ((denomScaledHeight - fontTeX.fontDimen.heightOf('x', family) / 2 + finalBarWidth / 2) - denom.baseline * (style == 'text' || style == 'script' ? .707106781 : 1)) * multiplier;
 
                             // Since a fraction doesn't really count as a character, `lastChar' is set to just
                             // a space (a character without an italic correction).
@@ -4757,7 +4701,6 @@
                             box = token;
                             token = token.content;
                         }
-
 
                         if (token.type == 'atom') {
                             // This value determined by what factor an atom needs to be scaled to look the
@@ -4785,15 +4728,16 @@
                             // cleus, where 'multiplier` is 1. If the 'multiplier` is already 1, the Rad atom
                             // is rendered normally.
                             if (['over','under','rad'].includes(token.atomType) && (token.subscript || token.superscript) || token.atomType == 'rad' && multiplier != 1) {
-                                token = {
+                                token.nucleus = [{
                                     type: 'atom',
-                                    atomType: 0,
-                                    nucleus: [token],
-                                    superscript: token.superscript,
-                                    subscript: token.subscript,
+                                    atomType: token.atomType,
+                                    nucleus: token.nucleus,
+                                    superscript: null,
+                                    subscript: null,
+                                    index: token.index,
                                     invalid: token.invalid
-                                };
-                                token.nucleus[0].subscript = token.nucleus[0].superscript = null;
+                                }];
+                                token.atomType = 0;
                             }
 
                             items.push(token);
@@ -4819,19 +4763,34 @@
                             // Most atoms have been collapsed so that "{{{a}}}" will just be recognized as "a".
                             // Instead of being its own atom and needing to make its own box, it can be recog-
                             // nized as a single symbol. That means less rendering and Acc atoms can adjust
-                            // their spacing to make the accent appear more "on top" of the symbol. There was
-                            // one exception though: Op atom with their limits set to "display" were kept since
-                            // we didn't yet know if their scripts would be rendered in display mode or inline
-                            // mode. Now that those have been resolved, we can get rid of unnecessary atom
-                            // wrapping around them.
-                            if ([0,1,2,3,4,5,6,'inner'].includes(token.atomType) && token.nucleus && token.nucleus.length == 1
-                                && token.nucleus[0].atomType == 1 && !token.nucleus[0].limits && !token.superscript && !token.subscript) {
+                            // their spacing to make the accent appear more "on top" of the symbol. Op atoms
+                            // are special though since they potential limits and larger versions of characters
+                            // they need to render. They weren't collapsed so that they can be evaluated here.
+                            if ([0,1,2,3,4,5,6,'inner'].includes(token.atomType) &&
+                                token.nucleus &&
+                                token.nucleus.length == 1 &&
+                                token.nucleus[0].atomType == 1 &&
+                                !token.nucleus[0].limits &&
+                                !token.superscript &&
+                                !token.subscript && !(
+                                    token.nucleus[0].nucleus && (
+                                        token.nucleus[0].nucleus.type == 'symbol' &&
+                                        settings['operator.growchars'][0].includes(token.nucleus[0].nucleus.char) ||
+                                        token.nucleus[0].nucleus.length == 1 &&
+                                        token.nucleus[0].nucleus[0].atomType == 7 &&
+                                        settings['operator.growchars'][0].includes(token.nucleus[0].nucleus[0].nucleus[0].char)
+                                    )
+                                )
+                            ) {
 
                                 token.superscript = token.nucleus[0].superscript;
                                 token.subscript = token.nucleus[0].subscript;
-                                token.nucleus = token[0].nucleus.nucleus;
+                                token.nucleus = token.nucleus[0].nucleus;
                             }
 
+                            // `scriptOffset' controls the amount of space the superscript exponent will be
+                            // shifted over. It only applies to atoms with a single character as their nucleus.
+                            var scriptOffset = 0;
 
                             if (token.nucleus && token.nucleus.type == 'symbol') {
                                 if (token.nucleus.code == 10) {
@@ -4868,6 +4827,8 @@
                                     token.div.renderedHeight = fontTeX.fontDimen.heightOf(token.nucleus.char, family, fontStyle) * multiplier;
                                     token.div.renderedDepth = fontTeX.fontDimen.trueDepthOf(token.nucleus.char, family, fontStyle) * multiplier;
                                     token.div.baseline = fontTeX.fontDimen.baselineHeightOf(family) * multiplier;
+
+                                    scriptOffset = fontTeX.fontDimen.scriptOffsetOf(token.nucleus.char, family, font == 'nm' && token.atomType == 7 ? 'it' : font);
                                 }
                                 lastChar = token.nucleus.char;
                             } else if (Array.isArray(token.nucleus)) {
@@ -4884,6 +4845,29 @@
                             // Now a font-size needs to be set on the element to show differences between
                             // styles (e.g. if a \displaystyle was found inside a \scriptstyle group).
                             token.div.style.fontSize = multiplier + 'em';
+
+                            // If the atom is an Op atom and the nucleus is a single character, the character
+                            // might have to be made bigger. Think of \int (integral character) in text style
+                            // compared to in display style.
+                            if (style == 'display' && token.atomType == data.mathcodes.op && token.nucleus && (token.nucleus.type == 'symbol' ||
+                                (token.nucleus.length == 1 && token.nucleus[0].nucleus && token.nucleus[0].nucleus.type == 'symbol' && token.nucleus[0].atomType == 7))) {
+                                var growAmt = 1;
+                                if (settings['operator.growchars'][0].includes(token.nucleus.char || token.nucleus[0].nucleus.char)) {
+                                    growAmt = settings['operator.growamount'][0];
+                                    token.div.renderedHeight *= growAmt;
+                                    token.div.renderedDepth *= growAmt;
+                                    token.div.firstElementChild.style.fontSize = growAmt + 'em';
+                                    scriptOffset *= growAmt;
+                                }
+                                var axisHeight = fontTeX.fontDimen.heightOf('x', family) / 2,
+                                    offset = (token.div.renderedHeight - axisHeight - token.div.renderedDepth - axisHeight) / 2;
+                                token.div.firstElementChild.style.top = offset / growAmt + 'em';
+                                token.div.renderedHeight -= offset;
+                                token.div.renderedDepth += offset;
+                                token.div.firstElementChild.style.position = 'relative';
+                                token.div.firstElementChild.style.marginTop = -offset / growAmt + 'em';
+                                token.div.firstElementChild.style.marginBottom = offset / growAmt + 'em';
+                            }
 
                             // If the current token is marked as delimited, then a pair of delimiters is added
                             // to the div. Delimiters appear from \left \right pairs.
@@ -5234,14 +5218,14 @@
                                     sub.style.verticalAlign = 'text-bottom';
                                     sub.style.position = 'relative';
                                     heightOffset.style.verticalAlign = 'text-top';
-                                    heightOffset.innerText = '\u00a0';
+                                    heightOffset.innerText = '\u00A0';
                                     heightOffset.style.display = 'inline-block';
                                     heightOffset.style.width = 0;
                                     newBox(token.subscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', true, font, sub);
 
                                     sub.style.fontSize = '50px';
                                     container.appendChild(sub);
-                                    var height = sub.getBoundingClientRect().height / 50;
+                                    var height = sub.offsetHeight / 50;
                                     container.removeChild(sub);
 
                                     // If the style isn't already at scriptscript, then it'll be rendered at a smaller
@@ -5311,13 +5295,13 @@
                                         heightOffset = document.createElement('div');
                                     sub.style.display = 'inline-block';
                                     heightOffset.style.verticalAlign = 'text-top';
-                                    heightOffset.innerText = '\u00a0';
+                                    heightOffset.innerText = '\u00A0';
                                     heightOffset.style.display = 'inline-block';
                                     heightOffset.style.width = 0;
                                     newBox(token.subscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', true, font, sub);
                                     sub.style.fontSize = '50px';
                                     container.appendChild(sub);
-                                    var subDimens = sub.getBoundingClientRect();
+                                    var subDimens = {height: sub.offsetHeight, width: sub.offsetWidth};
                                     container.removeChild(sub);
 
                                     // Do the same for the superscript.
@@ -5326,18 +5310,19 @@
                                     newBox(token.superscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped, font, sup);
                                     sup.style.fontSize = '50px';
                                     container.appendChild(sup);
-                                    var supDimens = sup.getBoundingClientRect();
+                                    var supDimens = {height: sup.offsetHeight, width: sup.offsetWidth};
                                     container.removeChild(sup);
 
+                                    sup.style.marginLeft = scriptOffset + 'em';
+
                                     // Assign variables to keep track of which of the scripts is thinner.
-                                    var thinner = supDimens.width > subDimens.width ? sub : sup,
-                                        thicker = supDimens.width > subDimens.width ? sup : sub,
+                                    var thinner = supDimens.width + scriptOffset > subDimens.width ? sub : sup,
+                                        thicker = supDimens.width + scriptOffset > subDimens.width ? sup : sub,
                                         height = supDimens.height / 50,
                                         depth = subDimens.height / 50;
 
                                     // Now, all the styles are added like normal.
-                                    sub.style.verticalAlign = 'text-bottom';
-                                    sup.style.verticalAlign = 'text-bottom';
+                                    sub.style.verticalAlign = sup.style.verticalAlign = 'text-bottom';
                                     sup.style.position = sub.style.position = 'relative';
                                     if (style == 'scriptscript') {
                                         sub.style.fontSize = sup.style.fontSize = '';
@@ -5376,7 +5361,7 @@
 
                                 var nucleusElem = token.div.firstElementChild;
                                 container.appendChild(token.div);
-                                var nucleusWidth = token.div.getBoundingClientRect().width;
+                                var nucleusWidth = token.div.offsetWidth;
                                 container.removeChild(token.div);
 
                                 if (token.subscript && !token.superscript) {
@@ -5402,9 +5387,9 @@
 
                                     sub.style.fontSize = style == 'scriptscript' ? token.div.style.fontSize : 'calc(' + token.div.style.fontSize + ' * .707106781)';
                                     container.appendChild(sub);
-                                    var width = sub.getBoundingClientRect().width;
+                                    var width = sub.offsetWidth + 1;
                                     sub.style.fontSize = '50px';
-                                    var height = sub.getBoundingClientRect().height / 50;
+                                    var height = sub.offsetHeight / 50;
                                     container.removeChild(sub);
 
                                     if (style == 'scriptscript') {
@@ -5456,16 +5441,7 @@
                                     widthCont.style.display = 'inline-block';
                                     widthCont.appendChild(thinner);
                                     thinContainer.appendChild(widthCont);
-                                    var clone = noWrap(thicker.cloneNode(true));
-                                    clone.style.visibility = 'hidden';
-                                    clone.style.webkitUserSelect =
-                                        clone.style.mozUserSelect =
-                                        clone.style.msUserSelect =
-                                        clone.style.userSelect = 'none';
-                                    clone.style.fontSize = style == 'scriptscript' ? '' : width < nucleusWidth ? '1.414213562em' : '.707106781em';
-                                    clone.style.height = 0;
-                                    clone.style.verticalAlign = 'top';
-                                    thinContainer.appendChild(clone);
+                                    thinContainer.style.width = Math.max(width, nucleusWidth) / fontSize / (style != 'scriptscript' && thicker == nucleusElem ? .707106781 : 1) + 'em';
                                     if (width < nucleusWidth) {
                                         sub.appendChild(thinContainer);
                                     } else {
@@ -5489,9 +5465,9 @@
 
                                     sup.style.fontSize = style == 'scriptscript' ? token.div.style.fontSize : 'calc(' + token.div.style.fontSize + ' * .707106781)';
                                     container.appendChild(sup);
-                                    var width = sup.getBoundingClientRect().width;
+                                    var width = sup.offsetWidth + 1;
                                     sup.style.fontSize = '50px';
-                                    var height = sup.getBoundingClientRect().height / 50;
+                                    var height = sup.offsetHeight / 50;
                                     container.removeChild(sup);
 
                                     if (style == 'scriptscript') {
@@ -5531,16 +5507,7 @@
                                     widthCont.style.display = 'inline-block';
                                     widthCont.appendChild(thinner);
                                     thinContainer.appendChild(widthCont);
-                                    var clone = noWrap(thicker.cloneNode(true));
-                                    clone.style.visibility = 'hidden';
-                                    clone.style.webkitUserSelect =
-                                        clone.style.mozUserSelect =
-                                        clone.style.msUserSelect =
-                                        clone.style.userSelect = 'none';
-                                    clone.style.fontSize = style == 'scriptscript' ? '' : width < nucleusWidth ? '1.414213562em' : '.707106781em';
-                                    clone.style.height = 0;
-                                    clone.style.verticalAlign = 'top';
-                                    thinContainer.appendChild(clone);
+                                    thinContainer.style.width = Math.max(width, nucleusWidth) / fontSize / (style != 'scriptscript' && thicker == nucleusElem ? .707106781 : 1) + 'em';
                                     if (width < nucleusWidth) {
                                         sup.appendChild(thinContainer);
                                     } else {
@@ -5567,9 +5534,9 @@
 
                                     sub.style.fontSize = style == 'scriptscript' ? token.div.style.fontSize : 'calc(' + token.div.style.fontSize + ' * .707106781)';
                                     container.appendChild(sub);
-                                    var subWidth = sub.getBoundingClientRect().width;
+                                    var subWidth = sub.offsetWidth + 1;
                                     sub.style.fontSize = '50px';
-                                    var subHeight = sub.getBoundingClientRect().height / 50;
+                                    var subHeight = sub.offsetHeight / 50;
                                     container.removeChild(sub);
 
                                     var sup = document.createElement('div');
@@ -5580,9 +5547,9 @@
 
                                     sup.style.fontSize = style == 'scriptscript' ? token.div.style.fontSize : 'calc(' + token.div.style.fontSize + ' * .707106781)';
                                     container.appendChild(sup);
-                                    var supWidth = sup.getBoundingClientRect().width;
+                                    var supWidth = sup.offsetWidth + 1;
                                     sup.style.fontSize = '50px';
-                                    var supHeight = sup.getBoundingClientRect().height / 50;
+                                    var supHeight = sup.offsetHeight / 50;
                                     container.removeChild(sup);
 
                                     var heightOffset = document.createElement('div');
@@ -5607,7 +5574,7 @@
                                     if (subWidth <= supWidth && nucleusWidth <= supWidth) {
                                         token.div.insertBefore(sub, nucleusElem);
                                         token.div.appendChild(sup);
-                                        sub.style.width = nucleusElem.style.width = 0;
+                                        sub.style.width = 0;
 
                                         var subThinContainer = document.createElement('div'),
                                             nucThinContainer = document.createElement('div');
@@ -5641,23 +5608,8 @@
                                         nucWidthCont.appendChild(nucleusElem);
                                         subThinContainer.appendChild(subWidthCont);
                                         nucThinContainer.appendChild(nucWidthCont);
-                                        var subClone = noWrap(sup.firstElementChild.cloneNode(true)),
-                                            nucClone = subClone.cloneNode(true);
-                                        subClone.style.visibility = nucClone.style.visibility = 'hidden';
-                                        subClone.style.webkitUserSelect =
-                                            subClone.style.mozUserSelect =
-                                            subClone.style.msUserSelect =
-                                            subClone.style.userSelect =
-                                            nucClone.style.webkitUserSelect =
-                                            nucClone.style.mozUserSelect =
-                                            nucClone.style.msUserSelect =
-                                            nucClone.style.userSelect = 'none';
-                                        subClone.style.fontSize = '';
-                                        nucClone.style.fontSize = style == 'scriptscript' ? '' : '.707106781em';
-                                        subClone.style.height = nucClone.style.height = 0;
-                                        subClone.style.verticalAlign = nucClone.style.verticalAlign = 'top';
-                                        subThinContainer.appendChild(subClone);
-                                        nucThinContainer.appendChild(nucClone);
+                                        subThinContainer.style.width = supWidth / fontSize / (style != 'scriptscript' ? .707106781 : 1) + 'em';
+                                        nucThinContainer.style.width = supWidth / fontSize + 'em';
                                         sub.appendChild(subThinContainer);
                                         var nucleusPar = document.createElement('div');
                                         nucleusPar.style.display = 'inline-block';
@@ -5701,28 +5653,14 @@
                                         supWidthCont.appendChild(sup.firstElementChild);
                                         subThinContainer.appendChild(subWidthCont);
                                         supThinContainer.appendChild(supWidthCont);
-                                        var subClone = noWrap(nucleusElem.cloneNode(true)),
-                                            supClone = subClone.cloneNode(true);
-                                        subClone.style.visibility = supClone.style.visibility = 'hidden';
-                                        subClone.style.webkitUserSelect =
-                                            subClone.style.mozUserSelect =
-                                            subClone.style.msUserSelect =
-                                            subClone.style.userSelect =
-                                            supClone.style.webkitUserSelect =
-                                            supClone.style.mozUserSelect =
-                                            supClone.style.msUserSelect =
-                                            supClone.style.userSelect = 'none';
-                                        subClone.style.fontSize = supClone.style.fontSize = style == 'scriptscript' ? '' : '1.414213562em';
-                                        subClone.style.height = supClone.style.height = 0;
-                                        subClone.style.verticalAlign = supClone.style.verticalAlign = 'top';
-                                        subThinContainer.appendChild(subClone);
-                                        supThinContainer.appendChild(supClone);
+                                        subThinContainer.style.width = nucleusWidth / fontSize / (style != 'scriptscript' ? .707106781 : 1) + 'em';
+                                        supThinContainer.style.width = nucleusWidth / fontSize / (style != 'scriptscript' ? .707106781 : 1) + 'em';
                                         sub.appendChild(subThinContainer);
                                         sup.appendChild(supThinContainer);
                                     } else if (nucleusWidth <= subWidth && supWidth <= subWidth) {
                                         token.div.insertBefore(sup, nucleusElem);
                                         token.div.appendChild(sub);
-                                        sup.style.width = nucleusElem.style.width = 0;
+                                        sup.style.width = 0;
 
                                         var supThinContainer = document.createElement('div'),
                                             nucThinContainer = document.createElement('div');
@@ -5756,23 +5694,8 @@
                                         nucWidthCont.appendChild(nucleusElem);
                                         supThinContainer.appendChild(supWidthCont);
                                         nucThinContainer.appendChild(nucWidthCont);
-                                        var supClone = noWrap(sub.firstElementChild.cloneNode(true)),
-                                            nucClone = supClone.cloneNode(true);
-                                        supClone.style.visibility = nucClone.style.visibility = 'hidden';
-                                        supClone.style.webkitUserSelect =
-                                            supClone.style.mozUserSelect =
-                                            supClone.style.msUserSelect =
-                                            supClone.style.userSelect =
-                                            nucClone.style.webkitUserSelect =
-                                            nucClone.style.mozUserSelect =
-                                            nucClone.style.msUserSelect =
-                                            nucClone.style.userSelect = 'none';
-                                        supClone.style.fontSize = '';
-                                        nucClone.style.fontSize = style == 'scriptscript' ? '' : '.707106781em';
-                                        supClone.style.height = nucClone.style.height = 0;
-                                        supClone.style.verticalAlign = nucClone.style.verticalAlign = 'top';
-                                        supThinContainer.appendChild(supClone);
-                                        nucThinContainer.appendChild(nucClone);
+                                        supThinContainer.style.width = subWidth / fontSize / (style != 'scriptscript' ? .707106781 : 1) + 'em';
+                                        nucThinContainer.style.width = subWidth / fontSize + 'em';
                                         sup.appendChild(supThinContainer);
                                         var nucleusPar = document.createElement('div');
                                         nucleusPar.style.display = 'inline-block';
@@ -5804,7 +5727,7 @@
                                     var oldFontSize = token.div.style.fontSize;
                                     token.div.style.fontSize = '50px';
                                     container.appendChild(token.div);
-                                    var tokenWidth = token.div.getBoundingClientRect().width / 50;
+                                    var tokenWidth = token.div.offsetWidth / 50;
                                     container.removeChild(token.div);
                                     token.div.style.fontSize = oldFontSize;
                                     width.em.value += tokenWidth * 65536;
@@ -5831,7 +5754,7 @@
                                     var oldFontSize = token.div.style.fontSize;
                                     token.div.style.fontSize = '50px';
                                     container.appendChild(token.div);
-                                    var tokenHeight = token.div.getBoundingClientRect().height / 50;
+                                    var tokenHeight = token.div.offsetHeight / 50;
                                     container.removeChild(token.div);
                                     token.div.style.fontSize = oldFontSize;
                                     height.em.value += tokenHeight * 65536;
@@ -5980,7 +5903,7 @@
                                     var oldFontSize = token.div.style.fontSize;
                                     token.div.style.fontSize = '50px';
                                     container.appendChild(token.div);
-                                    acc.style.left = (token.div.getBoundingClientRect().width / 50 - fontTeX.fontDimen.widthOf(token.accChar, family, font)) / 2 + offset + 'em';
+                                    acc.style.left = (token.div.offsetWidth / 50 - fontTeX.fontDimen.widthOf(token.accChar, family, font)) / 2 + offset + 'em';
                                     container.removeChild(token.div);
                                     token.div.style.fontSize = oldFontSize;
                                     token.div.insertBefore(acc, token.div.firstElementChild);
@@ -6002,6 +5925,8 @@
 
                                     token.div.style.position = 'relative';
                                     token.div.style.top = offset / 2 + 'em';
+                                    token.div.style.marginTop = -offset / 2 + 'em';
+                                    token.div.style.marginBottom = offset / 2 + 'em';
 
                                     token.div.renderedHeight -= offset / 2;
                                     token.div.renderedDepth += offset / 2;
@@ -6024,9 +5949,13 @@
                                     token.div.renderedHeight = Math.max(token.div.renderedHeight || 0, fontTeX.fontDimen.heightOf('x', family) / 2);
                                     token.div.renderedDepth = Math.max(token.div.renderedDepth || 0, 0);
 
+                                    container.appendChild(token.div);
+                                    var width = token.div.offsetWidth / fontSize;
+                                    container.removeChild(token.div);
+
                                     var overline = document.createElement('div'),
                                         fullContainer = document.createElement('div'),
-                                        widthContainer = document.createElement('div'),
+                                        widthOffset = document.createElement('div'),
                                         heightOffset = document.createElement('div'),
                                         clone = noWrap(token.div.cloneNode(true));
 
@@ -6036,20 +5965,19 @@
                                     fullContainer.style.top = -fontTeX.fontDimen.baselineHeightOf(family) - token.div.renderedHeight / multiplier - fontTeX.fontDimen.visibleWidthOf('|', family) - .12 + 'em';
                                     fullContainer.style.verticalAlign = 'text-bottom';
                                     fullContainer.style.pointerEvents = 'none';
-                                    widthContainer.style.display = 'inline-block';
-                                    widthContainer.style.webkitUserSelect =
-                                        widthContainer.style.mozUserSelect =
-                                        widthContainer.style.msUserSelect =
-                                        widthContainer.style.userSelect = 'none';
-                                    widthContainer.style.position = 'relative';
+                                    widthOffset.style.display = 'inline-block';
+                                    widthOffset.style.webkitUserSelect =
+                                        widthOffset.style.mozUserSelect =
+                                        widthOffset.style.msUserSelect =
+                                        widthOffset.style.userSelect = 'none';
+                                    widthOffset.style.position = 'relative';
                                     overline.style.position = 'absolute';
+                                    widthOffset.style.width = width + 'em';
                                     overline.style.left = overline.style.right = 0;
                                     overline.style.borderTop = fontTeX.fontDimen.visibleWidthOf('|', family) + 'em solid currentColor';
-                                    widthContainer.appendChild(overline);
-                                    clone.style.visibility = 'hidden';
-                                    clone.style.fontSize = '';
-                                    widthContainer.appendChild(clone);
-                                    fullContainer.appendChild(widthContainer);
+                                    widthOffset.appendChild(overline);
+                                    widthOffset.appendChild(document.createTextNode('\u00A0'));
+                                    fullContainer.appendChild(widthOffset);
                                     token.div.insertBefore(fullContainer, token.div.firstElementChild);
                                     heightOffset.style.height = token.div.renderedHeight / multiplier + fontTeX.fontDimen.visibleWidthOf('|', family) + .16 + 'em';
                                     heightOffset.style.display = 'inline-block';
@@ -6099,6 +6027,7 @@
                                             canvas.width = ((-b * (t * (v - 1) - v * w - g * sqrtv + w)) / (2 * g) + o + w) * fontSize;
                                             canvas.style.width = (-b * t * (v - 1) + b * v * w - w * (b - 2 * g) + g * (b + 2 * o)) / (2 * g) + 'em';
                                             var context = canvas.getContext('2d');
+                                            context.fillStyle = cssDeclaration.color;
 
                                             var p1 = [
                                                 Math.max((-b * (t * (v - 1) - v * w - g * sqrtv + w)) / (2 * g), 0) + o + w,
@@ -6168,6 +6097,7 @@
                                             canvas.width = (8 * w + b * (4 + sqrt3)) / 8 * fontSize;
                                             canvas.style.width = (8 * w + b * (4 + sqrt3)) / 8 + 'em';
                                             var context = canvas.getContext('2d');
+                                            context.fillStyle = cssDeclaration.color;
 
                                             context.beginPath();
                                             context.moveTo(
@@ -6233,7 +6163,7 @@
 
                                         index.style.fontSize = '50px';
                                         container.appendChild(index);
-                                        index.style.marginLeft = Math.max(-index.getBoundingClientRect().width / 50, -(indexX + .05) / (style == 'script' ? .707106781 : style == 'scriptscript' ? 1 : .5)) + 'em';
+                                        index.style.marginLeft = Math.max(-index.offsetWidth / 50, -(indexX + .05) / (style == 'script' ? .707106781 : style == 'scriptscript' ? 1 : .5)) + 'em';
                                         container.removeChild(index);
                                         index.style.fontSize = (style == 'script' ? .707106781 : style == 'scriptscript' ? 1 : .5) + 'em';
                                         index.style.top = (-Math.max(indexY - token.div.renderedDepth, fontTeX.fontDimen.heightOf('x', family) / 2) / (style == 'script' ? .707106781 : style == 'scriptscript' ? 1 : .5)) - index.renderedDepth - .1 + 'em';
@@ -6243,7 +6173,6 @@
                                     }
 
                                     break;
-
                             }
                         } else parse1(11, i, l);
                         break;
@@ -13712,58 +13641,64 @@
         \\chardef\\uparrow="2191\n\
         \\chardef\\updownarrow="2195\n\
         \\chardef\\Updownarrow="21D5\n\
-        \\mathchardef\\alpha="003B1\n\
+        \\mathchardef\\alpha="703B1\n\
         \\mathchardef\\angle="02220\n\
-        \\mathchardef\\beta="003B2\n\
-        \\mathchardef\\chi="003C7\n\
+        \\mathchardef\\beta="703B2\n\
+        \\mathchardef\\chi="703C7\n\
         \\mathchardef\\clubsuit="02663\n\
         \\mathchardef\\colon="6003A\n\
-        \\mathchardef\\delta="003B4\n\
+        \\mathchardef\\coprod="12210\n\
+        \\mathchardef\\delta="703B4\n\
         \\mathchardef\\diamondsuit="02662\n\
-        \\mathchardef\\epsilon="003F5\n\
-        \\mathchardef\\eta="003B7\n\
-        \\mathchardef\\gamma="003B3\n\
+        \\mathchardef\\epsilon="703F5\n\
+        \\mathchardef\\eta="703B7\n\
+        \\mathchardef\\gamma="703B3\n\
         \\mathchardef\\hbar="70127\n\
         \\mathchardef\\heartsuit="02661\n\
         \\mathchardef\\imath="70131\n\
         \\mathchardef\\intop="1222B \\def\\int{\\intop\\nolimits}\n\
-        \\mathchardef\\iota="003B9\n\
+        \\mathchardef\\iota="703B9\n\
         \\mathchardef\\jmath="70237\n\
-        \\mathchardef\\kappa="003BA\n\
-        \\mathchardef\\lambda="003BB\n\
+        \\mathchardef\\kappa="703BA\n\
+        \\mathchardef\\lambda="703BB\n\
         \\mathchardef\\leftarrow="32190 \\let\\gets=\\leftarrow\n\
         \\mathchardef\\Leftarrow="321D0\n\
         \\mathchardef\\leftrightarrow="32194\n\
         \\mathchardef\\Leftrightarrow="321D4\n\
         \\mathchardef\\ldotp="6002E\n\
-        \\mathchardef\\mu="003BC\n\
-        \\mathchardef\\nu="003BD\n\
-        \\mathchardef\\omega="003C9\n\
-        \\mathchardef\\phi="003D5\n\
-        \\mathchardef\\pi="003C0\n\
-        \\mathchardef\\psi="003C8\n\
-        \\mathchardef\\rho="003C1\n\
+        \\mathchardef\\mu="703BC\n\
+        \\mathchardef\\nu="703BD\n\
+        \\mathchardef\\omega="703C9\n\
+        \\mathchardef\\phi="703D5\n\
+        \\mathchardef\\pi="703C0\n\
+        \\mathchardef\\prod="1220F\n\
+        \\mathchardef\\psi="703C8\n\
+        \\mathchardef\\rho="703C1\n\
         \\mathchardef\\rightarrow="32192 \\let\\to=\\rightarrow\n\
         \\mathchardef\\Rightarrow="321D2\n\
-        \\mathchardef\\sigma="003C3\n\
-        \\mathchardef\\tau="003C4\n\
-        \\mathchardef\\theta="003B8\n\
-        \\mathchardef\\upsilon="003C5\n\
-        \\mathchardef\\varepsilon="003B5\n\
-        \\mathchardef\\varphi="003C6\n\
-        \\mathchardef\\varpi="003D6\n\
-        \\mathchardef\\varrho="003F1\n\
-        \\mathchardef\\varsigma="003C2\n\
-        \\mathchardef\\vartheta="003D1\n\
-        \\mathchardef\\xi="003BE\n\
-        \\mathchardef\\zeta="003B6\n\
+        \\mathchardef\\sigma="703C3\n\
+        \\mathchardef\\sum="12211\n\
+        \\mathchardef\\tau="703C4\n\
+        \\mathchardef\\theta="703B8\n\
+        \\mathchardef\\times="200D7\n\
+        \\mathchardef\\upsilon="703C5\n\
+        \\mathchardef\\varepsilon="703B5\n\
+        \\mathchardef\\varphi="703C6\n\
+        \\mathchardef\\varpi="703D6\n\
+        \\mathchardef\\varrho="703F1\n\
+        \\mathchardef\\varsigma="703C2\n\
+        \\mathchardef\\vartheta="703D1\n\
+        \\mathchardef\\xi="703BE\n\
+        \\mathchardef\\zeta="703B6\n\
         \\mathchardef\\Delta="00394\n\
         \\mathchardef\\Gamma="00393\n\
+        \\mathchardef\\Im="02111\n\
         \\mathchardef\\Lambda="0039B\n\
         \\mathchardef\\Omega="003A9\n\
         \\mathchardef\\Phi="003A6\n\
         \\mathchardef\\Pi="003A0\n\
         \\mathchardef\\Psi="003A8\n\
+        \\mathchardef\\Re="0211C\n\
         \\mathchardef\\Sigma="003A3\n\
         \\mathchardef\\spadesuit="02660\n\
         \\mathchardef\\Theta="00398\n\
@@ -13848,8 +13783,12 @@
         \\def\\u{\\accent"02D8 }\n\
         \\def\\v{\\accent"02C7 }\n\
         \\let\\bgroup={\n\
+        \\let\\displaymath=\\[\n\
+        \\let\\enddisplaymath=\\]\n\
         \\let\\egroup=}\n\
         \\let\\endline=\\cr\n\
+        \\let\\math=\\(\n\
+        \\let\\endmath=\\)\n\
         \\let\\sb=^\n\
         \\let\\sp=_\n\
         \\let\\repeat=\\fi\n\
@@ -13880,7 +13819,7 @@
         \\def\\brace{\\atopwithdelims\\{\\}}\n\
         \\def\\mathpalette#1#2{\
             \\mathchoice{#1\\displaystyle{#2}}{#1\\textstyle{#2}}{#1\\scriptstyle{#2}}{#1\\scriptscriptstyle{#2}}}\n\
-        \\def\\frac#1#2{{#1\\over#2}}\n\
+        \\def\\frac#1#2{{{#1}\\over{#2}}}\n\
         \\def\\mathrm#1{{\\rm#1}}\n\
         \\def\\textrm#1{{\\rm#1}}\n\
         \\def\\mathbf#1{{\\bf#1}}\n\
@@ -14351,6 +14290,89 @@
             this.cache[family].italic = this.cache[family].italic || {};
             this.cache[family].italic[string] = this.cache[family].italic[string] || {};
             return this.cache[family].italic[string].italCorr = Math.max(0, measure.call(this, .5, .5, 0) * 1.5 - fontTeX.fontDimen.widthOf(string, family, 'it'));
+        },
+        scriptOffsetOf: function(string, family, style) {
+            // For atoms with a superscript and subscript that only have a single symbol as its
+            // nucleus, an extra offset is added to each script. Type "W_b^p" for example into
+            // a TeX renderer and it'll show the "p" shifted over to the left. That's because
+            // the "W" and its italic correction. In this version, instead of having a manually
+            // set italic correction for every character (`fontTeX.fontDimen.italCorrOf' sort
+            // of finds one for any character, but it's not 100% accurate for all fonts or for
+            // offsetting scripts), the character is split in two. The top half and bottom half
+            // are measured separately. The point furthest right for each half is recorded and
+            // those two points determine how far apart the two scripts will be horizontally.
+
+            if (!this.isInit) this.init();
+
+            style = ({
+                nm: '',
+                rm: '',
+                sl: 'oblique',
+                it: 'italic',
+                bf: 'bold'
+            })[style || 'nm'];
+
+            if (this.cache[family] && this.cache[family][style] && this.cache[family][style][string] && !isNaN(this.cache[family][style][string].scriptOffset)) return this.cache[family][style][string].scriptOffset;
+
+            this.context.textBaseline = 'middle';
+
+            this.context.textAlign = 'left';
+
+            function measureTop(rectX, rectY, iteration) {
+                if (iteration == 7) return rectX;
+                this.context.clearRect(0, 0, 150, 150);
+                var scale = Math.pow(2, iteration);
+                this.context.font = (style || '') + ' ' + (100 * scale) + 'px ' + family;
+                this.context.fillText(string, 75 + 150 * scale * (.5 - rectX), 75 + 150 * scale * (.5 - rectY));
+                var data = this.context.getImageData(0, 0, 150, 150).data,
+                    foundCol = false,
+                    row = 0;
+                for (var col = 149; col >= 0; col--) {
+                    for (var i = 0; i < Math.max(150, Math.min(0, i < 75 + 150 * scale * (.5 - rectY))); i++) {
+                        var alpha = data[col * 4 + 150 * 4 * i + 3];
+                        if (alpha > foundCol) {
+                            foundCol = alpha;
+                            row = i;
+                        }
+                    }
+                    if (foundCol) break;
+                }
+                if (foundCol === false && iteration == 0) return 0;
+                if (alpha > 250) return rectX + (col / 150 - .5) / Math.pow(2, iteration);
+                return measureTop.call(this, rectX + (col / 150 - .5) / Math.pow(2, iteration), rectY + (row / 150 - .5) / Math.pow(2, iteration), iteration + 1);
+            }
+
+            function measureBottom(rectX, rectY, iteration) {
+                if (iteration == 7) return rectX;
+                this.context.clearRect(0, 0, 150, 150);
+                var scale = Math.pow(2, iteration);
+                this.context.font = (style || '') + ' ' + (100 * scale) + 'px ' + family;
+                this.context.fillText(string, 75 + 150 * scale * (.5 - rectX), 75 + 150 * scale * (.5 - rectY));
+                var data = this.context.getImageData(0, 0, 150, 150).data,
+                    foundCol = false,
+                    row = 0;
+                for (var col = 149; col >= 0; col--) {
+                    for (var i = 75; i < Math.max(150, i < 75 + 150 * scale * (1 - rectX)); i++) {
+                        var alpha = data[col * 4 + 150 * 4 * i + 3];
+                        if (alpha > foundCol) {
+                            foundCol = alpha;
+                            row = i;
+                        }
+                    }
+                    if (foundCol) break;
+                }
+                if (foundCol === false && iteration == 0) return 1;
+                if (alpha > 250) return rectX + (col / 150 - .5) / Math.pow(2, iteration);
+                return measureBottom.call(this, rectX + (col / 150 - .5) / Math.pow(2, iteration), rectY + (row / 150 - .5) / Math.pow(2, iteration), iteration + 1);
+            }
+
+            var top = measureTop.call(this, .5, .5, 0),
+                bottom = measureBottom.call(this, .5, .5, 0);
+
+            this.cache[family] = this.cache[family] || {};
+            this.cache[family][style] = this.cache[family][style] || {};
+            this.cache[family][style][string] = this.cache[family][style][string] || {};
+            return this.cache[family][style][string].scriptOffset = Math.max(top - bottom, 0) * 1.5;
         },
         leftOffsetOf: function(string, family, style) {
             // This measures the amount of space from the left boundary of a character to where
