@@ -1,4 +1,5 @@
 // TODO: add \widehat, \widetilde, and \vec
+// TODO: add \underbrace
 !function() {
     "use strict";
     // The TeXbook has an extended metaphor throughout the book that compares TeX's
@@ -20,7 +21,7 @@
     // If, for whatever reason, someone loaded two version of fontTeX, the one with the
     // latest version number wins. They're compared as string instead of numbers to
     // handle version numbers with double digits like 1.10.15.
-    var current = '0.4.2';
+    var current = '0.5';
     if (fontTeX.version) {
         if (current.split('.').map(function(number) {
             return String.fromCharCode(48 + +number);
@@ -88,7 +89,7 @@
         'radical.h': [1.25, Number],
         'radical.verticalthreshold': [2.75, Number],
         'operator.growamount': [1.75, Number],
-        'operator.growchars': ['∑∫∏∐', String]
+        'operator.growchars': ['⅀∏∐∑∫∮⋀⋁⋂⋃⨀⨁⨂⨃⨄⨅⨆⨉⫿', String]
     };
 
     // `styleChangeListener' is an object dedicated to listening for style changes in
@@ -123,7 +124,7 @@
 
     // Since `console.log' is actually used in some of the TeX commands here, I figured
     // I should make a dedicated function to differentiate between sending a message on
-    // purpose and sending a debugging message.
+    // purpose (like with \show) and sending a debugging message.
     function _msg() {
         console.log.apply(console, arguments);
     }
@@ -158,6 +159,93 @@
         // shift token, an inline equation is started instead (terminated by "\)" or an-
         // other single math shift token).
 
+        // This is like a smaller version of the `Mouth' class. If the first character of
+        // string has catcode 3 (math shift), it'll return the token right away. If the
+        // first character has catcode 13 (active), it'll try to expand the token, but only
+        // if it has been \let. It won't expand tokens that have been \def-ined since def-
+        // initions can have more than one token. If the active character has been let to
+        // either the \( primitive or the \[ primitive, or to a math shift token, it will
+        // return that. If it hasn't been \let to any of those things, it will ignore the
+        // token. If the first character of the string is of catcode 0 (escape token), it
+        // will look at the macro name after it and try to expand it the way it would for
+        // an active character token.
+        function eat(index) {
+            var char = TeXstring[index] || '',
+                cat = data.cats[char.charCodeAt(0)];
+            if (!cat || (cat.value != 0 && cat.value != 3 && cat.value != 13)) return [{}, 0];
+            cat = cat.value;
+
+            if (cat == data.cats.escape) {
+                if (TeXstring.charCodeAt(index + 1) in data.cats && data.cats[TeXstring.charCodeAt(index + 1)].value == data.cats.letter) {
+                    var name = '';
+                    for (var i = index + 1; TeXstring[i] && TeXstring.charCodeAt(i) in data.cats && data.cats[TeXstring.charCodeAt(i)].value == data.cats.letter; i++) {
+                        name += TeXstring[i];
+                    }
+                    if (data.defs.macros[name]) var macro = data.defs.macros[name];
+                    else return [{}, 0];
+                } else if (TeXstring[index + 1] && (data.defs.primitive[TeXstring[index + 1]] || data.defs.macros[TeXstring[index + 1]])) {
+                    var name = TeXstring[index + 1],
+                        macro = data.defs.primitive[TeXstring[index + 1]] || data.defs.macros[TeXstring[index + 1]];
+                } else {
+                    return [{}, 0];
+                }
+
+                var wasLet = false;
+                if (macro.isLet) {
+                    macro = macro.original;
+                    wasLet = true;
+                }
+                if (macro === data.defs.primitive['[']) {
+                    return [{
+                        type: 'command',
+                        name: '[',
+                        cat: -1
+                    }, name.length + 1];
+                } else if (macro === data.defs.primitive['(']) {
+                    return [{
+                        type: 'command',
+                        name: '(',
+                        cat: -1
+                    }, name.length + 1];
+                } else if (wasLet && macro.replacement && macro.replacement.length == 1 && macro.replacement[0].cat == data.cats.math) {
+                    return [{
+                        char: char,
+                        cat: data.cats.math
+                    }, name.length + 1];
+                } else {
+                    return [{}, 0];
+                }
+            } else if (cat == data.cats.math) {
+                return [{
+                    char: char,
+                    cat: data.cats.math
+                }, 1];
+            } else if (cat == data.cats.active && data.defs.active[char]) {
+                if (data.defs.active[char].isLet && data.defs.active[char].original === data.defs.primitive['[']) {
+                    return [{
+                        type: 'command',
+                        name: '[',
+                        cat: -1
+                    }, 1];
+                } else if (data.defs.active[char].isLet && data.defs.active[char].original === data.defs.primitive['(']) {
+                    return [{
+                        type: 'command',
+                        name: '(',
+                        cat: -1
+                    }, 1];
+                } else if (data.defs.active[char].isLet && data.defs.active[char].original.replacement &&
+                    data.defs.active[char].original.replacement.length == 1 &&
+                    data.defs.active[char].original.replacement[0].cat == data.cats.math) {
+                    return [{
+                        char: char,
+                        cat: data.cats.math
+                    }, 1];
+                } else {
+                    return [{}, 0];
+                }
+            }
+        }
+
         var content = [],
             origString = TeXstring;
         while (TeXstring) {
@@ -165,93 +253,6 @@
             // ally have a catcode associated with it, but if it's not stored manually in
             // `data.cats', it mean it has a catcode of 12, which doesn't matter in this case.
             if (TeXstring.charCodeAt(0) in data.cats) {
-
-                // This is like a smaller version of the `Mouth' class. If the first character of
-                // string has catcode 3 (math shift), it'll return the token right away. If the
-                // first character has catcode 13 (active), it'll try to expand the token, but only
-                // if it has been \let. It won't expand tokens that have been \def-ined since def-
-                // initions can have more than one token. If the active character has been let to
-                // either the \( primitive or the \[ primitive, or to a math shift token, it will
-                // return that. If it hasn't been \let to any of those things, it will ignore the
-                // token. If the first character of the string is of catcode 0 (escape token), it
-                // will look at the macro name after it and try to expand it the way it would for
-                // an active character token.
-                function eat(index) {
-                    var char = TeXstring[index] || '',
-                        cat = data.cats[char.charCodeAt(0)];
-                    if (!cat || (cat.value != 0 && cat.value != 3 && cat.value != 13)) return [{}, 0];
-                    cat = cat.value;
-
-                    if (cat == data.cats.escape) {
-                        if (TeXstring.charCodeAt(index + 1) in data.cats && data.cats[TeXstring.charCodeAt(index + 1)].value == data.cats.letter) {
-                            var name = '';
-                            for (var i = index + 1; TeXstring[i] && TeXstring.charCodeAt(i) in data.cats && data.cats[TeXstring.charCodeAt(i)].value == data.cats.letter; i++) {
-                                name += TeXstring[i];
-                            }
-                            if (data.defs.macros[name]) var macro = data.defs.macros[name];
-                            else return [{}, 0];
-                        } else if (TeXstring[index + 1] && (data.defs.primitive[TeXstring[index + 1]] || data.defs.macros[TeXstring[index + 1]])) {
-                            var name = TeXstring[index + 1],
-                                macro = data.defs.primitive[TeXstring[index + 1]] || data.defs.macros[TeXstring[index + 1]];
-                        } else {
-                            return [{}, 0];
-                        }
-
-                        var wasLet = false;
-                        if (macro.isLet) {
-                            macro = macro.original;
-                            wasLet = true;
-                        }
-                        if (macro === data.defs.primitive['[']) {
-                            return [{
-                                type: 'command',
-                                name: '[',
-                                cat: -1
-                            }, name.length + 1];
-                        } else if (macro === data.defs.primitive['(']) {
-                            return [{
-                                type: 'command',
-                                name: '(',
-                                cat: -1
-                            }, name.length + 1];
-                        } else if (wasLet && macro.replacement && macro.replacement.length == 1 && macro.replacement[0].cat == data.cats.math) {
-                            return [{
-                                char: char,
-                                cat: data.cats.math
-                            }, name.length + 1];
-                        } else {
-                            return [{}, 0];
-                        }
-                    } else if (cat == data.cats.math) {
-                        return [{
-                            char: char,
-                            cat: data.cats.math
-                        }, 1];
-                    } else if (cat == data.cats.active && data.defs.active[char]) {
-                        if (data.defs.active[char].isLet && data.defs.active[char].original === data.defs.primitive['[']) {
-                            return [{
-                                type: 'command',
-                                name: '[',
-                                cat: -1
-                            }, 1];
-                        } else if (data.defs.active[char].isLet && data.defs.active[char].original === data.defs.primitive['(']) {
-                            return [{
-                                type: 'command',
-                                name: '(',
-                                cat: -1
-                            }, 1];
-                        } else if (data.defs.active[char].isLet && data.defs.active[char].original.replacement &&
-                            data.defs.active[char].original.replacement.length == 1 &&
-                            data.defs.active[char].original.replacement[0].cat == data.cats.math) {
-                            return [{
-                                char: char,
-                                cat: data.cats.math
-                            }, 1];
-                        } else {
-                            return [{}, 0];
-                        }
-                    }
-                }
 
                 var token = eat(0),
                     type = null,
@@ -2834,7 +2835,7 @@
                 // A token was found that closes groups and scopes. If there are no open groups,
                 // then it is marked as invalid. If the last scope was opened via a \left, it is
                 // also marked as invalid.
-                if (!openGroups.length || scopes.last.delimited || scopes.last.semisimple || scopes.last.isHalign || scopes.last.isHalignCell || contexts.last != 'scope') {
+                if (scopes[0] === scopes.last || !openGroups.length || scopes.last.delimited || scopes.last.semisimple || scopes.last.isHalign || scopes.last.isHalignCell || contexts.last != 'scope') {
                     // If the character is invalid, an invalid character token is created and passed to
                     // the mouth so it can be treated like a regular character.
                     mouth.queue.unshift({
@@ -2871,7 +2872,16 @@
 
                     if (scopes.last.root) scopes.last.root.invalid = true;
 
-                    if (contexts.last == 'superscript') {
+                    if (scopes[scopes.length - 2] && scopes[scopes.length - 2].noAligned) {
+                        scopes[scopes.length - 3].noAligns.push({
+                            type: 'atom',
+                            atomType: 0,
+                            nucleus: tokens,
+                            superscript: null,
+                            subscript: null
+                        });
+                        scopes.pop();
+                    } else if (contexts.last == 'superscript') {
                         scopes.pop();
                         for (var i = scopes.last.tokens.length - 1; i >= 0; i--) {
                             if (scopes.last.tokens[i].type == 'atom' && !scopes.last.tokens[i].ignore) {
@@ -2918,9 +2928,32 @@
                 // token is found again, the cell is done parsing and should move on to the next.
                 if (contexts.last == 'mathchoice') contexts.last.failed();
 
-                // Alignment characters are only allowed in the context of a table. If it's not in
-                // that context, mark it as invalid.
-                if (!scopes.last.isHalignCell || contexts.last != 'scope') {
+                // If an alignment token is found that isn't in the context of a table, and any
+                // preamble has already been parsed (this is the second time the token was found),
+                // then the token is marked as invalid. If this is the first time it was found,
+                // there has to be at least one scope in the scope chain that corresponds to a ta-
+                // ble cell, even if that scope isn't necessarily the last one in the scope chain.
+                var cellScope = false;
+                for (var i = scopes.length - 1; i >= 0; i--) {
+                    if (scopes[i].isHalignCell) {
+                        cellScope = scopes[i];
+                        break;
+                    }
+                }
+                if (!cellScope) {
+                    mouth.queue.unshift({
+                        type: 'character',
+                        cat: data.cats.all,
+                        char: token.char,
+                        code: token.code,
+                        invalid: true
+                    });
+                    continue;
+                }
+                var halignScope = cellScope.parentScope,
+                    row = halignScope.cellData[halignScope.cellData.length - 1];
+                if (row[row.length - 1].omit) token.postPreamble = true;
+                if (token.postPreamble && !scopes.last.isHalignCell || contexts.last != 'scope') {
                     mouth.queue.unshift({
                         type: 'character',
                         cat: data.cats.all,
@@ -2935,9 +2968,7 @@
                 // added to the mouth first along with the current token. If the cell was marked
                 // as `omit' though, then the preamble doesn't apply to it, so it's the same as
                 // if this is the second time the token was found.
-                var row = scopes[scopes.length - 2].cellData[scopes[scopes.length - 2].cellData.length - 1],
-                    halignScope = scopes[scopes.length - 2];
-                if (!row[row.length - 1].omit && !token.postPreamble) {
+                if (!token.postPreamble) {
                     var column = -1,
                         tokens;
                     for (var i = 0, l = row.length; i < l; i++) {
@@ -2985,7 +3016,18 @@
                         });
                         continue;
                     }
-                    mouth.queue.unshift.apply(mouth.queue, tokens.concat(token));
+                    // The preamble tokens are cloned first so that they can be reused (certain tokens
+                    // like \left or \begingroup can only be used once, so using a clone each time en-
+                    // sures they can be used indefinitely).
+                    var preambleToks = [];
+                    for (var i = 0, l = tokens.length; i < l; i++) {
+                        var tok = {};
+                        for (var key in tokens[i]) {
+                            tok[key] = tokens[i][key];
+                        }
+                        preambleToks.push(tok);
+                    }
+                    mouth.queue.unshift.apply(mouth.queue, preambleToks.concat(token));
                     token.postPreamble = true;
                     continue;
                 }
@@ -2993,7 +3035,7 @@
                 // At this point, the preamble should have been parsed if there was one. Now, the
                 // cell is ready to be closed to move on to the next one.
 
-                if (e.scopes.last.root) e.scopes.last.root.invalid = true;
+                if (scopes.last.root) scopes.last.root.invalid = true;
 
                 contexts.pop();
                 var tokens = scopes.last.tokens;
@@ -3117,7 +3159,18 @@
                         var repeatable = halignScope.preamble.slice(halignScope.repeatPreambleAt, halignScope.preamble.length);
                         tokens = repeatable[(column - halignScope.repeatPreambleAt) % repeatable.length][0];
                     }
-                    mouth.queue.unshift.apply(mouth.queue, tokens);
+
+                    // The tokens are cloned here too for the same reason they were closed in the pre-
+                    // amble to close the cell.
+                    var preambleToks = [];
+                    for (var i = 0, l = tokens.length; i < l; i++) {
+                        var token = {};
+                        for (var key in tokens[i]) {
+                            token[key] = tokens[i][key];
+                        }
+                        preambleToks.push(token);
+                    }
+                    mouth.queue.unshift.apply(mouth.queue, preambleToks);
                 }
             } else if (token.type == 'character') {
                 // A regular character was found.
@@ -3432,7 +3485,7 @@
         // were also marked as invalid.
         function removeIgnored(tokens) {
             for (var i = 0, l = tokens.length; i < l; i++) {
-                if (tokens[i].ignore && tokens[i].type == 'command') {
+                if (tokens[i] && tokens[i].ignore && tokens[i].type == 'command') {
                     if (tokens[i].invalid) {
                         var toks = (tokens[i].escapeChar + tokens[i].name).split('').map(function(element) {
                             return {
@@ -3458,28 +3511,29 @@
                     } else tokens.splice(i, 1);
                     l = tokens.length;
                     i--;
-                } else if (tokens[i].ignore && !tokens[i].invalid) {
+                } else if (tokens[i] && tokens[i].ignore && !tokens[i].invalid) {
                     tokens.splice(i, 1);
                     l = tokens.length;
                     i--;
-                } else if (tokens[i].type == 'fraction') {
+                } else if (tokens[i] && tokens[i].type == 'fraction') {
                     removeIgnored(tokens[i].numerator);
                     removeIgnored(tokens[i].denominator);
-                } else if (tokens[i].type == 'table') {
-                    for (var i = 0, l = tokens[i].cellData.length; i < l; i++) {
-                        for (var n = 0, j = tokens[i].cellData[i].length; n < j; n++) {
-                            removeIgnored(tokens[i][n].content);
+                } else if (tokens[i] && tokens[i].type == 'table') {
+                    removeIgnored(tokens[i].noAligns);
+                    for (var n = 0, j = tokens[i].cellData.length; n < j; n++) {
+                        for (var m = 0, k = tokens[i].cellData[n].length; m < k; m++) {
+                            removeIgnored(tokens[i].cellData[n][m].content);
                         }
                     }
-                } else if (tokens[i].type == 'atom') {
+                } else if (tokens[i] && tokens[i].type == 'atom') {
                     if (Array.isArray(tokens[i].nucleus)) removeIgnored(tokens[i].nucleus);
                     if (Array.isArray(tokens[i].superscript)) removeIgnored(tokens[i].superscript);
                     if (Array.isArray(tokens[i].subscript)) removeIgnored(tokens[i].subscript);
-                } else if (tokens[i].type == 'mathchoice') {
+                } else if (tokens[i] && tokens[i].type == 'mathchoice') {
                     removeIgnored(tokens[i].groups);
-                } else if (tokens[i].type == 'box') {
+                } else if (tokens[i] && tokens[i].type == 'box') {
                     removeIgnored([tokens[i].content]);
-                } else if (tokens[i].type == 'family modifier' && tokens[i].value == 'rad') {
+                } else if (tokens[i] && tokens[i].type == 'family modifier' && tokens[i].value == 'rad') {
                     removeIgnored(tokens[i].index);
                 }
             }
@@ -3489,20 +3543,27 @@
         // Math family tokens like \mathbin and \overline are resolved here.
         function resolveFamilies(tokens) {
             for (var i = 0, l = tokens.length; i < l; i++) {
-                if (tokens[i].type == 'family modifier') {
+                if (tokens[i] && tokens[i].type == 'family modifier') {
                     if (tokens[i + 1] && tokens[i + 1].type == 'atom') {
-                        tokens.splice(i, 2, {
-                            type: 'atom',
-                            atomType: tokens[i].value,
-                            nucleus: [tokens[i + 1]],
-                            superscript: tokens[i + 1].superscript,
-                            subscript: tokens[i + 1].subscript,
-                            index: tokens[i].index
-                        });
-                        tokens[i].nucleus[0].superscript = null;
-                        tokens[i].nucleus[0].subscript = null;
+                        if (tokens[i].value == 'phantom') {
+                            tokens.splice(i, 1);
+                            tokens[i].phantom = true;
+                        } else {
+                            tokens.splice(i, 2, {
+                                type: 'atom',
+                                atomType: tokens[i].value,
+                                nucleus: [tokens[i + 1]],
+                                superscript: tokens[i + 1].superscript,
+                                subscript: tokens[i + 1].subscript,
+                                invalid: tokens[i + 1].invalid,
+                                index: tokens[i].index,
+                                phantom: tokens[i + 1].phantom
+                            });
+                            tokens[i].nucleus[0].superscript = null;
+                            tokens[i].nucleus[0].subscript = null;
+                            i--;
+                        }
                         l = tokens.length;
-                        i--;
                     } else {
                         var toks = (tokens[i].token.type == 'command' ? tokens[i].token.escapeChar + tokens[i].token.name : tokens[i].token.char).split('').map(function(element) {
                             return {
@@ -3526,23 +3587,24 @@
                             subscript: null
                         };
                     }
-                } else if (tokens[i].type == 'fraction') {
+                } else if (tokens[i] && tokens[i].type == 'fraction') {
                     resolveFamilies(tokens[i].numerator);
                     resolveFamilies(tokens[i].denominator);
-                } else if (tokens[i].type == 'table') {
-                    for (var i = 0, l = tokens[i].cellData.length; i < l; i++) {
-                        for (var n = 0, j = tokens[i].cellData[i].length; n < j; n++) {
-                            resolveFamilies(tokens[i][n].content);
+                } else if (tokens[i] && tokens[i].type == 'table') {
+                    resolveFamilies(tokens[i].noAligns);
+                    for (var n = 0, j = tokens[i].cellData.length; n < j; n++) {
+                        for (var m = 0, k = tokens[i].cellData[n].length; m < k; m++) {
+                            resolveFamilies(tokens[i].cellData[n][m].content);
                         }
                     }
-                } else if (tokens[i].type == 'atom') {
+                } else if (tokens[i] && tokens[i].type == 'atom') {
                     if (Array.isArray(tokens[i].nucleus)) resolveFamilies(tokens[i].nucleus);
                     if (Array.isArray(tokens[i].superscript)) resolveFamilies(tokens[i].superscript);
                     if (Array.isArray(tokens[i].subscript)) resolveFamilies(tokens[i].subscript);
                     if (Array.isArray(tokens[i].index)) resolveFamilies(tokens[i].index);
-                } else if (tokens[i].type == 'mathchoice') {
+                } else if (tokens[i] && tokens[i].type == 'mathchoice') {
                     resolveFamilies(tokens[i].groups);
-                } else if (tokens[i].type == 'box') {
+                } else if (tokens[i] && tokens[i].type == 'box') {
                     resolveFamilies([tokens[i].content]);
                 }
             }
@@ -3559,7 +3621,7 @@
         // by an atom.
         function resolveAccents(tokens) {
             for (var i = 0, l = tokens.length; i < l; i++) {
-                if (tokens[i].type == 'accent modifier') {
+                if (tokens[i] && tokens[i].type == 'accent modifier') {
                     if (tokens[i + 1] && tokens[i + 1].type == 'atom') {
                         tokens.splice(i, 2, {
                             type: 'atom',
@@ -3568,7 +3630,9 @@
                             superscript: tokens[i + 1].superscript,
                             subscript: tokens[i + 1].subscript,
                             accChar: tokens[i].char,
-                            accCode: tokens[i].code
+                            accCode: tokens[i].code,
+                            invalid: tokens[i + 1].invalid,
+                            phantom: tokens[i + 1].phantom
                         });
                         tokens[i].nucleus[0].superscript = null;
                         tokens[i].nucleus[0].subscript = null;
@@ -3597,23 +3661,24 @@
                             subscript: null
                         };
                     }
-                } else if (tokens[i].type == 'fraction') {
+                } else if (tokens[i] && tokens[i].type == 'fraction') {
                     resolveAccents(tokens[i].numerator);
                     resolveAccents(tokens[i].denominator);
-                } else if (tokens[i].type == 'table') {
-                    for (var i = 0, l = tokens[i].cellData.length; i < l; i++) {
-                        for (var n = 0, j = tokens[i].cellData[i].length; n < j; n++) {
-                            resolveAccents(tokens[i][n].content);
+                } else if (tokens[i] && tokens[i].type == 'table') {
+                    resolveAccents(tokens[i].noAligns);
+                    for (var n = 0, j = tokens[i].cellData.length; n < j; n++) {
+                        for (var m = 0, k = tokens[i].cellData[n].length; m < k; m++) {
+                            resolveAccents(tokens[i].cellData[n][m].content);
                         }
                     }
-                } else if (tokens[i].type == 'atom') {
+                } else if (tokens[i] && tokens[i].type == 'atom') {
                     if (Array.isArray(tokens[i].nucleus)) resolveAccents(tokens[i].nucleus);
                     if (Array.isArray(tokens[i].superscript)) resolveAccents(tokens[i].superscript);
                     if (Array.isArray(tokens[i].subscript)) resolveAccents(tokens[i].subscript);
                     if (Array.isArray(tokens[i].index)) resolveAccents(tokens[i].index);
-                } else if (tokens[i].type == 'mathchoice') {
+                } else if (tokens[i] && tokens[i].type == 'mathchoice') {
                     resolveAccents(tokens[i].groups);
-                } else if (tokens[i].type == 'box') {
+                } else if (tokens[i] && tokens[i].type == 'box') {
                     resolveAccents([tokens[i].content]);
                 }
             }
@@ -3623,7 +3688,7 @@
         // Limit modifiers (\displaylimits, \limits, \nolimits) are resolved here.
         function resolveLimits(tokens) {
             for (var i = 0, l = tokens.length; i < l; i++) {
-                if (tokens[i].type == 'limit modifier') {
+                if (tokens[i] && tokens[i].type == 'limit modifier') {
                     if (tokens[i - 1] && tokens[i - 1].type == 'atom' && tokens[i - 1].atomType == 1) {
                         tokens[i - 1].limits = tokens[i].value;
                         tokens.splice(i, 1);
@@ -3652,24 +3717,25 @@
                             subscript: null
                         };
                     }
-                } else if (tokens[i].type == 'fraction') {
+                } else if (tokens[i] && tokens[i].type == 'fraction') {
                     resolveLimits(tokens[i].numerator);
                     resolveLimits(tokens[i].denominator);
-                } else if (tokens[i].type == 'table') {
-                    for (var i = 0, l = tokens[i].cellData.length; i < l; i++) {
-                        for (var n = 0, j = tokens[i].cellData[i].length; n < j; n++) {
-                            resolveLimits(tokens[i][n].content);
+                } else if (tokens[i] && tokens[i].type == 'table') {
+                    resolveLimits(tokens[i].noAligns);
+                    for (var n = 0, j = tokens[i].cellData.length; n < j; n++) {
+                        for (var m = 0, k = tokens[i].cellData[n].length; m < k; m++) {
+                            resolveLimits(tokens[i].cellData[n][m].content);
                         }
                     }
-                } else if (tokens[i].type == 'atom') {
+                } else if (tokens[i] && tokens[i].type == 'atom') {
                     if (tokens[i].atomType == 1) tokens[i].limits = 'display';
                     if (Array.isArray(tokens[i].nucleus)) resolveLimits(tokens[i].nucleus);
                     if (Array.isArray(tokens[i].superscript)) resolveLimits(tokens[i].superscript);
                     if (Array.isArray(tokens[i].subscript)) resolveLimits(tokens[i].subscript);
                     if (Array.isArray(tokens[i].index)) resolveLimits(tokens[i].index);
-                } else if (tokens[i].type == 'mathchoice') {
+                } else if (tokens[i] && tokens[i].type == 'mathchoice') {
                     resolveLimits(tokens[i].groups);
-                } else if (tokens[i].type == 'box') {
+                } else if (tokens[i] && tokens[i].type == 'box') {
                     resolveLimits([tokens[i].content]);
                 }
             }
@@ -3681,7 +3747,7 @@
         // or width
         function resolveBoxes(tokens) {
             for (var i = 0, l = tokens.length; i < l; i++) {
-                if (tokens[i].type == 'box wrapper') {
+                if (tokens[i] && tokens[i].type == 'box wrapper') {
                     if (tokens[i + 1] && tokens[i + 1].type == 'atom') {
                         tokens.splice(i, 2, {
                             type: 'box',
@@ -3689,11 +3755,9 @@
                             to: tokens[i].to,
                             spread: tokens[i].spread,
                             content: tokens[i + 1],
-                            superscript: tokens[i + 1].superscript,
-                            subscript: tokens[i + 1].subscript
+                            superscript: null,
+                            subscript: null
                         });
-                        tokens[i].content.superscript = null;
-                        tokens[i].content.subscript = null;
                         l = tokens.length;
                         i--;
                     } else {
@@ -3719,23 +3783,24 @@
                             subscript: null
                         };
                     }
-                } else if (tokens[i].type == 'fraction') {
+                } else if (tokens[i] && tokens[i].type == 'fraction') {
                     resolveBoxes(tokens[i].numerator);
                     resolveBoxes(tokens[i].denominator);
-                } else if (tokens[i].type == 'table') {
-                    for (var i = 0, l = tokens[i].cellData.length; i < l; i++) {
-                        for (var n = 0, j = tokens[i].cellData[i].length; n < j; n++) {
-                            resolveBoxes(tokens[i][n].content);
+                } else if (tokens[i] && tokens[i].type == 'table') {
+                    resolveBoxes(tokens[i].noAligns);
+                    for (var n = 0, j = tokens[i].cellData.length; n < j; n++) {
+                        for (var m = 0, k = tokens[i].cellData[n].length; m < k; m++) {
+                            resolveBoxes(tokens[i].cellData[n][m].content);
                         }
                     }
-                } else if (tokens[i].type == 'atom') {
+                } else if (tokens[i] && tokens[i].type == 'atom') {
                     if (Array.isArray(tokens[i].nucleus)) resolveBoxes(tokens[i].nucleus);
                     if (Array.isArray(tokens[i].superscript)) resolveBoxes(tokens[i].superscript);
                     if (Array.isArray(tokens[i].subscript)) resolveBoxes(tokens[i].subscript);
                     if (Array.isArray(tokens[i].index)) resolveBoxes(tokens[i].index);
-                } else if (tokens[i].type == 'mathchoice') {
+                } else if (tokens[i] && tokens[i].type == 'mathchoice') {
                     resolveBoxes(tokens[i].groups);
-                } else if (tokens[i].type == 'box') {
+                } else if (tokens[i] && tokens[i].type == 'box') {
                     resolveBoxes([tokens[i].content]);
                 }
             }
@@ -3752,19 +3817,21 @@
         // is not false.
         function collapseAtoms(tokens) {
             for (var i = 0, l = tokens.length; i < l; i++) {
-                if (tokens[i].type == 'atom') {
+                if (tokens[i] && tokens[i].type == 'atom') {
                     if (Array.isArray(tokens[i].nucleus)) collapseAtoms(tokens[i].nucleus);
                     if (Array.isArray(tokens[i].superscript)) collapseAtoms(tokens[i].superscript);
                     if (Array.isArray(tokens[i].subscript)) collapseAtoms(tokens[i].subscript);
                     if (Array.isArray(tokens[i].index)) collapseAtoms(tokens[i].index);
 
-                    if (Array.isArray(tokens[i].nucleus) && tokens[i].nucleus.length == 1) {
+                    if (Array.isArray(tokens[i].nucleus) && tokens[i].nucleus.length == 1 && !tokens[i].nucleus[0].delimited) {
                         if ([0,2,3,4,5,6,'inner'].includes(tokens[i].nucleus[0].atomType) && !['over','under','rad'].includes(tokens[i].atomType)) {
                             if (!tokens[i].nucleus[0].superscript && !tokens[i].nucleus[0].subscript) {
+                                tokens[i].phantom = tokens[i].phantom || tokens[i].nucleus[0].phantom;
                                 tokens[i].nucleus = tokens[i].nucleus[0].nucleus;
                                 i--;
                                 continue;
                             } else if (!tokens[i].superscript && !tokens[i].subscript) {
+                                tokens[i].phantom = tokens[i].phantom || tokens[i].nucleus[0].phantom;
                                 tokens[i].superscript = tokens[i].nucleus[0].superscript;
                                 tokens[i].subscript = tokens[i].nucleus[0].subscript;
                                 tokens[i].nucleus = tokens[i].nucleus[0].nucleus;
@@ -3773,11 +3840,13 @@
                             }
                         } else if (tokens[i].nucleus[0].atomType == 7 && tokens[i].atomType == 0) {
                             if (!tokens[i].nucleus[0].superscript && !tokens[i].nucleus[0].subscript) {
+                                tokens[i].phantom = tokens[i].phantom || tokens[i].nucleus[0].phantom;
                                 tokens[i].nucleus = tokens[i].nucleus[0].nucleus;
                                 tokens[i].atomType = 7;
                                 i--;
                                 continue;
                             } else if (!tokens[i].superscript && !tokens[i].subscript) {
+                                tokens[i].phantom = tokens[i].phantom || tokens[i].nucleus[0].phantom;
                                 tokens[i].superscript = tokens[i].nucleus[0].superscript;
                                 tokens[i].subscript = tokens[i].nucleus[0].subscript;
                                 tokens[i].nucleus = tokens[i].nucleus[0].nucleus;
@@ -3785,13 +3854,14 @@
                                 i--;
                                 continue;
                             }
-                        } else if (tokens[i].nucleus[0].atomType != 7 && ['over','under','rad','accent'].includes(tokens[i].atomType)) {
+                        } else if (tokens[i].nucleus[0].atomType != 7 && ['over','under','rad','acc'].includes(tokens[i].atomType)) {
                             if (!tokens[i].nucleus[0].superscript && !tokens[i].nucleus[0].subscript) {
+                                tokens[i].phantom = tokens[i].phantom || tokens[i].nucleus[0].phantom
                                 tokens[i].nucleus = tokens[i].nucleus[0].nucleus;
                             }
                         }
                     }
-                } else if (tokens[i].type == 'fraction') {
+                } else if (tokens[i] && tokens[i].type == 'fraction') {
                     if (tokens[i].numerator && Array.isArray(tokens[i].numerator) &&
                         tokens[i].numerator.length == 1 && !tokens[i].numerator.subscript &&
                         !tokens[i].numerator.superscript && Array.isArray(tokens[i].numerator[0].nucleus)) {
@@ -3805,16 +3875,17 @@
 
                     collapseAtoms(tokens[i].numerator);
                     collapseAtoms(tokens[i].denominator);
-                } else if (tokens[i].type == 'table') {
-                    for (var i = 0, l = tokens[i].cellData.length; i < l; i++) {
-                        for (var n = 0, j = tokens[i].cellData[i].length; n < j; n++) {
-                            collapseAtoms(tokens[i][n].content);
+                } else if (tokens[i] && tokens[i].type == 'table') {
+                    collapseAtoms(tokens[i].noAligns);
+                    for (var n = 0, j = tokens[i].cellData.length; n < j; n++) {
+                        for (var m = 0, k = tokens[i].cellData[n].length; m < k; m++) {
+                            collapseAtoms(tokens[i].cellData[n][m].content);
                         }
                     }
-                } else if (tokens[i].type == 'mathchoice') {
+                } else if (tokens[i] && tokens[i].type == 'mathchoice') {
                     collapseAtoms(tokens[i].groups);
-                } else if (tokens[i].type == 'box') {
-                    collapseAtoms([tokens[i].content]);
+                } else if (tokens[i] && tokens[i].type == 'box') {
+                    collapseAtoms(tokens[i].content.nucleus);
                 }
             }
         }
@@ -4125,8 +4196,8 @@
                                 script: 2,
                                 scriptscript: 3
                             })[style]];
-                            tokens.splice.bind(tokens, i, 1).apply(tokens, atom.nucleus);
-                            l += atom.nucleus.length - 1;
+                            tokens.splice.bind(tokens, i, 1).apply(tokens, atom.nucleus.type == 'symbol' ? [atom] : atom.nucleus);
+                            l += atom.nucleus.type == 'symbol' ? 0 : atom.nucleus.length - 1;
                             i--;
                             return [i,l];
                         } else return parse1(4, i, l);
@@ -4177,7 +4248,7 @@
                         // need to be known explicitly). Instead of going through all the math and guessing
                         // at font parameters, the numerator and denominator are placed pretty much right
                         // on top of the fraction bar. It seems to work, so not really a problem there.
-                        if (token.type == 'fraction' && token) {
+                        if (token.type == 'fraction') {
                             // Even though the current token is already the nucleus of an atom, it still needs
                             // to be recognized as its own atom in `parse2'. That's why an `atomWrapper' is
                             // made for the fraction. It'll be added as an atom inside its own box which will
@@ -4682,14 +4753,66 @@
                             // Since a fraction doesn't really count as a character, `lastChar' is set to just
                             // a space (a character without an italic correction).
                             lastChar = ' ';
-                        } else parse1(9, i, l);
+                        } else return parse1(9, i, l);
                         break;
 
                     case 9:
                         // This step isn't in regular TeX. This is where tables are handled. Plain TeX
                         // doesn't even have tables in math mode (it does them in horizontal mode and
                         // places the math material inside it).
-                        parse1(10, i, l);
+                        if (token.type == 'table') {
+                            // The table is wrapped inside its own atom just like a fraction is above.
+                            var atomWrapper = {
+                                type: 'atom',
+                                atomType: 'inner',
+                                nucleus: null,
+                                superscript: null,
+                                subscript: null,
+                                style: style,
+                                div: document.createElement('div')
+                            }
+                            items.push(atomWrapper);
+                            atoms.push(atomWrapper);
+                            token.style = style;
+                            token.div = atomWrapper.div;
+                            token.div.style.display = 'inline-block';
+                            token.div.style.whiteSpace = 'nowrap';
+
+                            var table = document.createElement('table');
+                            table.style.borderCollapse = 'collapse';
+                            table.style.verticalAlign = 'middle';
+                            table.style.display = 'inline-table';
+
+                            for (var r = 0, l = token.cellData.length; r < l; r++) {
+                                if (token.noAligns[r]) {
+                                    var noAlign = document.createElement('td');
+                                    noAlign.setAttribute('colspan', token.tabSkips.length - 1);
+                                    noAlign.style.padding = 0;
+                                    newBox([token.noAligns[r]], style, false, font, noAlign);
+                                    table.appendChild(noAlign);
+                                    noAlign.firstElementChild.style.width = '100%';
+                                    noAlign.firstElementChild.style.justifyContent = '';
+                                }
+                                var row = document.createElement('tr');
+                                for (var c = 0, j = token.cellData[r].length; c < j; c++) {
+                                    var cell = document.createElement('td');
+                                    cell.setAttribute('colspan', token.cellData[r][c].span);
+                                    cell.style.padding = 0;
+                                    cell.style.paddingLeft = token.tabSkips[c].start.em.value / 65536 + token.tabSkips[c].start.sp.value / 65536 / 12 + 'em';
+                                    if (c == token.tabSkips.length - 2) cell.style.paddingRight = token.tabSkips[c + 1].start.em.value / 65536 + token.tabSkips[c + 1].start.sp.value / 65536 / 12 + 'em';
+                                    newBox(token.cellData[r][c].content, style, false, font, cell);
+                                    row.appendChild(cell);
+                                    cell.firstElementChild.style.width = '100%';
+                                    cell.firstElementChild.style.justifyContent = '';
+                                }
+                                table.appendChild(row);
+                            }
+                            token.div.appendChild(table);
+                            container.appendChild(token.div);
+                            token.div.renderedHeight = token.div.offsetHeight / fontSize / 2 + fontTeX.fontDimen.heightOf('x', family) / 2;
+                            token.div.renderedDepth = token.div.offsetHeight / fontSize / 2 - fontTeX.fontDimen.heightOf('x', family) / 2;
+                            container.removeChild(token.div);
+                        } else return parse1(10, i, l);
                         break;
 
                     case 10:
@@ -4735,7 +4858,8 @@
                                     superscript: null,
                                     subscript: null,
                                     index: token.index,
-                                    invalid: token.invalid
+                                    invalid: token.invalid,
+                                    phantom: token.phantom
                                 }];
                                 token.atomType = 0;
                             }
@@ -4770,6 +4894,7 @@
                                 token.nucleus &&
                                 token.nucleus.length == 1 &&
                                 token.nucleus[0].atomType == 1 &&
+                                !token.nucleus[0].delimited &&
                                 !token.nucleus[0].limits &&
                                 !token.superscript &&
                                 !token.subscript && !(
@@ -4840,6 +4965,13 @@
                                 if (token.div.firstElementChild.empty && !token.superscript && !token.subscript && !token.delimited && !['rad', 'acc', 'over', 'under'].includes(token.atomType)) {
                                     token.div.empty = true;
                                 }
+                            }
+
+                            // If the atom was marked as a phantom atom (from \phantom), it's nucleus is made
+                            // invisible with opacity: 0. It will still take up the normal amount of space and
+                            // be treated exactly as if it wasn't a phantom atom.
+                            if (token.phantom) {
+                                token.div.firstElementChild.style.opacity = 0;
                             }
 
                             // Now a font-size needs to be set on the element to show differences between
@@ -5775,6 +5907,7 @@
                                 }
                                 token.div.firstElementChild.style.flexWrap = '';
                             }
+                            if (box) token.div.firstElementChild.style.justifyContent = 'initial';
 
 
                             // At this point, a normal atom is done rendering. That includes Ord, Bin, Rel, Op,
@@ -6174,7 +6307,7 @@
 
                                     break;
                             }
-                        } else parse1(11, i, l);
+                        } else return parse1(11, i, l);
                         break;
 
                     case 11:
@@ -6215,7 +6348,7 @@
                                     rule.renderedDepth = Math.max(depth, 0);
                                 }
                                 if (width < 0) {
-                                    items.add({
+                                    items.push({
                                         type: 'kern',
                                         dimen: new DimenReg(0, width * 65536)
                                     });
@@ -6249,7 +6382,8 @@
                                 subscript: null,
                                 style: style,
                                 div: rule,
-                                isLineBreak: token.ruleType == 'h'
+                                isLineBreak: token.ruleType == 'h',
+                                growHeight: token.ruleType == 'v'
                             }
                             items.push(atomWrapper);
                             atoms.push(atomWrapper);
@@ -6369,8 +6503,7 @@
                                 childFlexes.last.verticalRaise = verticalOffset;
                             }
                         }
-
-                        parse2(2, i, l);
+                        return parse2(2, i, l);
                         break;
 
                     case 2:
@@ -6401,13 +6534,13 @@
                                 }
                             }
                             if (atomIndex != 0 && token.atomType == 3) {
-                                if (style == 'display' || style == 'text' && atoms[atomIndex - 1].atomType != 3 && atoms[atomIndex - 1].atomType != 4) {
+                                if ((style == 'display' || style == 'text') && atoms[atomIndex - 1].atomType != 3 && atoms[atomIndex - 1].atomType != 4) {
                                     childFlexes.push(document.createElement('div'));
                                     if (atoms[atomIndex - 1].atomType == 6) childFlexes.last.style.width = '.1666667em';
                                     else {
                                         childFlexes.last.style.flexGrow = 1;
                                         childFlexes.last.style.maxWidth = '.5555555em';
-                                        childFlexes.last.style.width = '.2777778em';
+                                        childFlexes.last.style.minWidth = '.2777778em';
                                     }
                                 }
                                 childFlexes.push(document.createElement('div'));
@@ -6448,7 +6581,8 @@
                                 }
                                 switch (spacing) {
                                     case 1:
-                                        space.style.width = '.1666667em';
+                                        space.style.minWidth = '.1666667em';
+                                        space.style.maxWidth = '.1666667em';
                                         break;
 
                                     case 2:
@@ -6459,7 +6593,7 @@
                                         break;
 
                                     case 3:
-                                        space.style.width = '.2777778em';
+                                        space.style.minWidth = '.2777778em';
                                         space.style.maxWidth = '.5555555em';
                                         space.style.flexGrow = '1';
                                         break;
@@ -6493,14 +6627,42 @@
                                     childFlexes.last.verticalRaise = verticalOffset;
                                 }
                             } else {
-                                childFlexes.last.appendChild(token.div);
+                                // If the atom is from a \vrule, the entire atom is made to grow vertically to have
+                                // the same height as its parent.
+                                if (token.growHeight) {
+                                    childFlexes.push(document.createElement('div'));
+                                    childFlexes.last.style.display = 'inline-flex';
+                                    childFlexes.last.style.flexWrap = 'nowrap';
+                                    childFlexes.last.style.alignItems = 'baseline';
+                                    childFlexes.last.style.alignSelf = 'stretch';
+                                    if (verticalOffset) {
+                                        childFlexes.last.style.position = 'relative';
+                                        childFlexes.last.style.marginTop = verticalOffset / 65536 + 'em';
+                                        childFlexes.last.style.marginBottom = -verticalOffset / 65536 + 'em';
+                                        childFlexes.last.style.top = -verticalOffset / 65536 + 'em';
+                                        childFlexes.last.verticalRaise = verticalOffset;
+                                    }
+                                    childFlexes.last.appendChild(token.div);
+                                    childFlexes.push(document.createElement('div'));
+                                    childFlexes.last.style.display = 'inline-flex';
+                                    childFlexes.last.style.flexWrap = 'nowrap';
+                                    childFlexes.last.style.alignItems = 'baseline';
+                                    if (verticalOffset) {
+                                        childFlexes.last.style.position = 'relative';
+                                        childFlexes.last.style.marginTop = verticalOffset / 65536 + 'em';
+                                        childFlexes.last.style.marginBottom = -verticalOffset / 65536 + 'em';
+                                        childFlexes.last.style.top = -verticalOffset / 65536 + 'em';
+                                        childFlexes.last.verticalRaise = verticalOffset;
+                                    }
+                                } else childFlexes.last.appendChild(token.div);
                             }
 
                             // This is where Punct line breaks are handled.
                             if (token.atomType == 6) {
-                                if (style == 'display' || style == 'text' && atoms[atomIndex + 1] && atoms[atomIndex + 1].atomType != 3) {
+                                if ((style == 'display' || style == 'text') && atoms[atomIndex + 1] && atoms[atomIndex + 1].atomType != 3) {
                                     childFlexes.push(document.createElement('div'));
-                                    childFlexes.last.style.width = '.1666667em';
+                                    childFlexes.last.style.minWidth = '.1666667em';
+                                    childFlexes.last.style.maxWidth = '.1666667em';
                                 }
                                 childFlexes.push(document.createElement('div'));
                                 childFlexes.last.style.display = 'inline-flex';
@@ -6514,7 +6676,7 @@
                                     childFlexes.last.verticalRaise = verticalOffset;
                                 }
                             }
-                        }
+                        } else return parse2(3, i, l);
                         break;
                 }
             }
@@ -7429,20 +7591,49 @@
                     // \omit commands and create a new scope for the next table cell to store its data
                     // in.
 
-                    if (!e.scopes.last.isHalign && !e.scopes.last.isHalignCell || e.contexts.last != 'scope') {
+                    if (e.contexts.last != 'scope') {
+                        this.invalid = true;
+                        return [this];
+                    }
+
+                    // Each \halign row's \cr is iterated over twice. Each cell has a preamble that is
+                    // split into two parts: the tokens that come before the cell's content and those
+                    // the come after. If a \cr is found, the second part of the preamble still needs
+                    // to be parsed to complete the cell. To do that, each \cr is iterated over twice.
+                    // The first time, it signals that the second part of the cell's preamble needs to
+                    // be parsed. It adds tokens to the mouth corresponding to the second part of the
+                    // preamble. Those tokens are followed up by the current \cr token again. After the
+                    // preamble tokens are parsed and the same \cr is reached again, that's when the
+                    // row is really closed. The first time the \cr is encountered, it doesn't matter
+                    // if the current scope is a cell because the preamble may change the scopes still.
+                    // The second time it's encountered though, it means there is no preamble left to
+                    // change the scope, so the \cr MUST be in a cell's scope to be considered valid.
+                    var cellScope = false;
+                    for (var i = e.scopes.length - 1; i >= 0; i--) {
+                        if (e.scopes[i].isHalign || e.scopes[i].isHalignCell) {
+                            cellScope = e.scopes[i];
+                            break;
+                        }
+                    }
+                    if (!cellScope) {
+                        this.invalid = true;
+                        return [this];
+                    }
+                    var halignScope = cellScope.isHalign ? cellScope : cellScope.parentScope,
+                        row = cellScope.isHalign ? null : halignScope.cellData[halignScope.cellData.length - 1];
+                    if (row && row[row.length - 1].omit) this.postPreamble = true;
+                    if (this.postPreamble && !e.scopes.last.isHalign && !e.scopes.last.isHalignCell) {
                         this.invalid = true;
                         return [this];
                     }
 
                     // \cr means the current row for the \halign is over. The last cell's scope still
                     // needs to be closed.
-                    if (e.scopes.last.isHalignCell) {
+                    if (cellScope.isHalignCell) {
                         // Before any of the cell closing happens, the preamble for the previous cell needs
                         // to be added in to be parsed. The preamble-adding part is copied from where a-
                         // lignment tokens are parsed.
-                        var row = e.scopes[e.scopes.length - 2].cellData[e.scopes[e.scopes.length - 2].cellData.length - 1],
-                            halignScope = e.scopes[e.scopes.length - 2];
-                        if (!row[row.length - 1].omit && !this.postPreamble) {
+                        if (!this.postPreamble) {
                             var column = -1,
                                 tokens;
                             for (var i = 0, l = row.length; i < l; i++) {
@@ -7458,8 +7649,18 @@
                                 this.invalid = true;
                                 return [this];
                             }
+                            // The preamble tokens should be cloned to prevent some of the from only being able
+                            // to be parsed once.
+                            var preambleToks = [];
+                            for (var i = 0, l = tokens.length; i < l; i++) {
+                                var token = {};
+                                for (var key in tokens[i]) {
+                                    token[key] = tokens[i][key];
+                                }
+                                preambleToks.push(token);
+                            }
                             this.postPreamble = true;
-                            return tokens.concat(this);
+                            return preambleToks.concat(this);
                         }
 
                         if (e.scopes.last.root) e.scopes.last.root.invalid = true;
@@ -7489,7 +7690,8 @@
                         }
                     }
 
-                    var crNoAlignSym = Symbol();
+                    var crNoAlignSym = Symbol(),
+                        noalign = false;
                     e.mouth.saveState(crNoAlignSym);
 
                     // The \cr is in the proper context. \noalign is looked for first.
@@ -7550,13 +7752,15 @@
                                 e.mouth.queue.unshift.apply(e.mouth.queue, expansion);
                                 continue;
                             } else if (macro === data.defs.primitive.noalign || macro.proxy && macro.original === data.defs.primitive.noalign) {
-                                var expansion = e.mouth.expand(token, e.mouth);
-                                if (expansion.length == 1 && expansion[0] === token && token.invalid) {
+                                // Now that a \noalign was found, the next token has to be an opening token. Other-
+                                // wise, the \noalign is considered invalid.
+                                var preview = e.mouth.preview();
+                                if (preview.cat != data.cats.open) {
                                     e.mouth.loadState(crNoAlignSym);
                                     e.scopes.last.noAligns.push(null);
-                                    break;
+                                } else {
+                                    noalign = true;
                                 }
-                                e.scopes.last.noAligns.push(expansion);
                                 break;
                             }
 
@@ -7653,7 +7857,7 @@
                     var crCloseSym = Symbol();
                     e.mouth.saveState(crCloseSym);
 
-                    // After a \cr or \noalign, if there's a closing token, it signified the end of the
+                    // After a \cr or \noalign, if there's a closing token, it signifies the end of the
                     // \halign table. Instead of making a new row, the table scope is closed.
                     while (true) {
                         var token = e.mouth.eat();
@@ -7687,12 +7891,12 @@
                             e.scopes.last.tokens.push({
                                 type: 'atom',
                                 atomType: 'inner',
-                                nucleus: {
+                                nucleus: [{
                                     type: 'table',
                                     cellData: halignScope.cellData,
                                     tabSkips: halignScope.tabSkips,
                                     noAligns: halignScope.noAligns
-                                },
+                                }],
                                 superscript: null,
                                 subscript: null
                             });
@@ -7842,10 +8046,21 @@
                     e.contexts.push('scope');
                     new e.Scope();
                     e.scopes.last.isHalignCell = true;
+                    e.scopes.last.noAligned = noalign;
 
                     // If the cell wasn't marked as `omit', the preamble for the new column needs to be
-                    // evaluated.
-                    return !halignScope.cellData[halignScope.cellData.length - 1][0].omit ? halignScope.preamble[0][0] : [];
+                    // evaluated. The tokens are cloned first so that they can be reused.
+                    if (halignScope.cellData[halignScope.cellData.length - 1][0].omit) return [];
+                    var tokens = halignScope.preamble[0][0],
+                        preambleToks = [];
+                    for (var i = 0, l = tokens.length; i < l; i++) {
+                        var token = {};
+                        for (var key in tokens[i]) {
+                            token[key] = tokens[i][key];
+                        }
+                        preambleToks.push(token);
+                    }
+                    return preambleToks;
                 }),
                 crcr: new Primitive('crcr', null), // Set to match \cr's function later
                 csname: new Primitive('csname', function(e) {
@@ -9206,15 +9421,16 @@
                             this.invalid = true;
                             e.mouth.loadState(halignSym);
                             return [this];
-                        } else if (token.type == 'command' || token.type == 'character' && token.car == data.cats.active) {
+                        } else if (token.type == 'command' || token.type == 'character' && token.cat == data.cats.active) {
                             var macro = token.type == 'command' ? e.scopes.last.defs.primitive[token.name] || e.scopes.last.defs.macros[token.name] || e.scopes.last.registers.named[token.name] : e.scopes.last.defs.active[token.char];
+                            macro = macro && macro.isLet ? macro.original : macro;
 
                             if (!macro) {
                                 // If the macro doesn't exist, just add it to preamble list since it might be de-
                                 // fined by the time the preamble is evaluated.
                                 (preamble[preamble.length - 1][1] || preamble[preamble.length - 1][0]).push(token);
                                 continue;
-                            } else if (macro === data.defs.primitive.cr || macro.isLet && macro.original === data.defs.primitive.cr) {
+                            } else if (macro === data.defs.primitive.cr) {
                                 // If \cr is found, the end of the row was found and the preamble is done. Make
                                 // sure the preamble has at least one complete column.
                                 if (preamble[preamble.length - 1][1]) {
@@ -9284,7 +9500,7 @@
                                     }
                                 }
                                 continue;
-                            } else if (macro === data.defs.primitive.span || macro.isLet && macro.original === data.defs.primitive.span) {
+                            } else if (macro === data.defs.primitive.span) {
                                 // \span is like the opposite of \noexpand. Here, all the tokens are being skipped
                                 // over except a select few. \span will expand the next token using `Mouth.expand'.
                                 var next = e.mouth.eat();
@@ -9302,7 +9518,7 @@
                                 }
                                 e.mouth.queue.unshift.apply(e.mouth.queue, expansion);
                                 continue;
-                            } else if (macro.isLet && macro.original.replacement[0] && macro.original.replacement[0].cat == data.cats.param) {
+                            } else if (macro.replacement && macro.replacement[0] && macro.replacement[0].cat == data.cats.param) {
                                 // A parameter token was found. It indicates where the text of each column should
                                 // go.
                                 if (preamble[preamble.length - 1][1]) {
@@ -9314,7 +9530,7 @@
                                 }
                                 preamble[preamble.length - 1][1] = [];
                                 continue;
-                            } else if (macro.isLet && macro.original.replacement[0] && macro.original.replacement[0].cat == data.cats.alignment) {
+                            } else if (macro.replacement && macro.replacement[0] && macro.replacement[0].cat == data.cats.alignment) {
                                 // A tab alignment token was found. It indicates the end of the cell. If the previ-
                                 // ous cell is empty, it indicates that all the cells from here on out will be re-
                                 // peated indefinitely, as much as the columns in the table need them.
@@ -9380,9 +9596,9 @@
                     // table. But instead of parsing the body here, it's parsed a the top level parser
                     // since that's the only place where tokens like ^, _, #, etc. can be dealt with
                     // correctly. A special scope is created to house all the tokens inside the table's
-                    // body. When the scope is closed, instead of being added as a regular Ord atom
-                    // a token list nucleus, the table is compiled into an array and stored as a spec-
-                    // ial object in an Ord atom's nucleus.
+                    // body. When the scope is closed, instead of being added as a regular Ord atom,
+                    // the table is compiled into an array and stored as a special object in an Inner
+                    // atom's nucleus.
 
                     // This ignored atom is used in case the \halign scope is never closed, similar to
                     // how a regular group is made. If the scope is never closed, the token is marked
@@ -11311,6 +11527,12 @@
                         return [true];
                     }
                 }),
+                noalign: new Primitive('noalign', function(e) {
+                    // \noalign is handled entirely in \cr.
+
+                    this.invalid = true;
+                    return [this];
+                }),
                 noexpand: new Primitive('noexpand', function(e) {
                     // \noexpand has no use outside of a \edef or \xdef. It is only used to signal that
                     // the next token should not be expanded. Outside of a \edef, a command HAS to be
@@ -11535,6 +11757,22 @@
                     e.scopes.last.fracNumerator = e.scopes.last.tokens;
                     e.scopes.last.tokens = [];
 
+                    return [];
+                }),
+                phantom: new Primitive('phantom', function(e) {
+                    // \phantom makes the next atom's nucleus invisible. It will still take up the same
+                    // amount of space as if it was visible, but it will have opacity: 0.
+                    if (e.contexts.last == 'superscript' || e.contexts.last == 'subscript') {
+                        this.invalid = true;
+                        return [this];
+                    }
+
+                    e.tokens.push({
+                        type: 'family modifier',
+                        value: 'phantom',
+                        index: [],
+                        token: this
+                    });
                     return [];
                 }),
                 raise: new Primitive('raise', function(e) {
@@ -12015,38 +12253,59 @@
                     // found in the table's body inside a cell, it acts like a regular alignment token.
                     // The only difference is that the two cells on either side of it are joined into
                     // one. Everything that happens for an alignment token also happens for this, ex-
-                    // cept the creation of a new cell.
+                    // cept the creation of a new cell. Most of the code below was copied from where
+                    // regular alignment tokens are parsed.
 
-                    if (!e.scopes.last.isHalignCell || e.contexts.last != 'scope') {
+                    if (e.contexts.last == 'mathchoice') e.contexts.last.failed();
+
+                    var cellScope = false;
+                    for (var i = e.scopes.length - 1; i >= 0; i--) {
+                        if (e.scopes[i].isHalignCell) {
+                            cellScope = e.scopes[i];
+                            break;
+                        }
+                    }
+                    if (!cellScope) {
+                        this.invalid = true;
+                        return [this];
+                    }
+                    var halignScope = cellScope.parentScope,
+                        row = halignScope.cellData[halignScope.cellData.length - 1];
+                    if (row[row.length - 1].omit) this.postPreamble = true;
+                    if (this.postPreamble && !e.scopes.last.isHalignCell || e.contexts.last != 'scope') {
                         this.invalid = true;
                         return [this];
                     }
 
-                    // The \span was in the \haling table. Treat it like an alignment character. The
-                    // code below was copied from where alignment tokens are parsed in the top level
-                    // parser.
-                    var row = e.scopes[e.scopes.length - 2].cellData[e.scopes[e.scopes.length - 2].cellData.length - 1],
-                        halignScope = e.scopes[e.scopes.length - 2];
-                    if (!row[row.length - 1].omit && !this.postPreamble) {
+                    if (!this.postPreamble) {
                         var column = -1,
                             tokens;
                         for (var i = 0, l = row.length; i < l; i++) {
                             column += row[i].span;
                         }
-                        if (halignScope.preamble[column]) tokens = halignScope.preamble[column][1];
-                        else if (~halignScope.repeatPreambleAt) {
+                        if (halignScope.preamble[column]) {
+                            tokens = halignScope.preamble[column][1];
+                        } else if (~halignScope.repeatPreambleAt) {
                             var repeatable = halignScope.preamble.slice(halignScope.repeatPreambleAt, halignScope.preamble.length);
                             tokens = repeatable[(column - halignScope.repeatPreambleAt) % repeatable.length][1];
                         } else {
                             this.invalid = true;
                             return [this];
                         }
-                        if (!halignScope.preamble[column + 1] && !~halignScope.repeatPreambleAt) {
+                        if (!halignScope.preamble[++column] && !~halignScope.repeatPreambleAt) {
                             this.invalid = true;
                             return [this];
                         }
+                        var preambleToks = [];
+                        for (var i = 0, l = tokens.length; i < l; i++) {
+                            var token = {};
+                            for (var key in tokens[i]) {
+                                token[key] = tokens[i][key];
+                            }
+                            preambleToks.push(token);
+                        }
                         this.postPreamble = true;
-                        return tokens.concat(this);
+                        return preambleToks.concat(this);
                     }
 
                     if (e.scopes.last.root) e.scopes.last.root.invalid = true;
@@ -12077,16 +12336,13 @@
                     var spanOmitSym = Symbol();
                     e.mouth.saveState(spanOmitSym);
 
-                    // Since a new cell isn't being created, the old cell's `omit' value has to be re-
-                    // set since it's applying to a new section of the cell. The content after the
-                    // \span all the way up until the next \span, \cr, or alignment token all counts
-                    // as its own cell and the preamble for that cell needs to be added in to it if
-                    // necessary.
                     row[row.length - 1].omit = false;
-                    // The last cell's `span' value goes up so the HTML generator knows how many col-
-                    // umns the cell should span when generated.
                     row[row.length - 1].span++;
 
+                    // Even though this is the same cell as the one that was just "closed", each sec-
+                    // tion of the cell has its own omit value. If the new part of the cell doesn't
+                    // have its own \omit, its omit value is assumed to be false, even if the old, con-
+                    // nected cell has its omit value set to true.
                     while (true) {
                         var token = e.mouth.eat();
 
@@ -12155,13 +12411,10 @@
                         }
                     }
 
-                    // Open a new scope for the new cell.
                     e.contexts.push('scope');
                     new e.Scope();
                     e.scopes.last.isHalignCell = true;
 
-                    // If the cell wasn't marked as `omit', the preamble for the new column needs to be
-                    // evaluated.
                     if (!row[row.length - 1].omit) {
                         var column = -1;
                         for (var i = 0, l = row.length; i < l; i++) {
@@ -12173,7 +12426,16 @@
                             var repeatable = halignScope.preamble.slice(halignScope.repeatPreambleAt, halignScope.preamble.length);
                             tokens = repeatable[(column - halignScope.repeatPreambleAt) % repeatable.length][0];
                         }
-                        e.mouth.queue.unshift.apply(e.mouth.queue, tokens);
+
+                        var preambleToks = [];
+                        for (var i = 0, l = tokens.length; i < l; i++) {
+                            var token = {};
+                            for (var key in tokens[i]) {
+                                token[key] = tokens[i][key];
+                            }
+                            preambleToks.push(token);
+                        }
+                        return preambleToks;
                     }
                 }),
                 radical: new Primitive('sqrt', function(e) {
@@ -13591,96 +13853,183 @@
         \\newdimen\\jot \\jot=3pt\n\
         \\newcount\\interdisplaylinepenalty \\interdisplaylinepenalty=100\n\
         \\newcount\\interfootnotelinepenalty \\interfootnotelinepenalty=100\n\
-        \\chardef\\\\="000A\n\
-        \\chardef\\{=`\\{\n\
-        \\chardef\\}=`\\}\n\
-        \\chardef\\$=`\\$\n\
-        \\chardef\\#=`\\#\n\
-        \\chardef\\%=`\\%\n\
-        \\chardef\\&=`\\&\n\
-        \\chardef\\_=`\\_\n\
-        \\chardef\\|="2016\n\
-        \\chardef\\AA="00C5\n\
-        \\chardef\\aa="00E5\n\
-        \\chardef\\AE="00C8\n\
-        \\chardef\\ae="00E6\n\
-        \\chardef\\Arrowvert="2225\n\
-        \\chardef\\arrowvert="23D0\n\
-        \\chardef\\backslash=`\\\\\n\
-        \\chardef\\bracevert="23AA\n\
-        \\chardef\\dag="2020\n\
-        \\chardef\\ddag="2021\n\
-        \\chardef\\downarrow="2193\n\
-        \\chardef\\Downarrow="21D3\n\
-        \\chardef\\equiv="2261\n\
-        \\chardef\\infty="221E\n\
-        \\chardef\\L="0141\n\
-        \\chardef\\l="0142\n\
-        \\chardef\\langle="27E8\n\
-        \\chardef\\lbrace=`\\{\n\
-        \\chardef\\lceil="2308\n\
-        \\chardef\\lfloor="230A\n\
-        \\chardef\\lgroup="27EE\n\
-        \\chardef\\lmoustache="23B0\n\
-        \\chardef\\O="00D8\n\
-        \\chardef\\o="00F8\n\
-        \\chardef\\OE="0152\n\
-        \\chardef\\oe="0153\n\
-        \\chardef\\P="00B6\n\
-        \\chardef\\rangle="27E9\n\
-        \\chardef\\rbrace=`\\}\n\
-        \\chardef\\rceil="2309\n\
-        \\chardef\\rfloor="230B\n\
-        \\chardef\\rgroup="27EF\n\
-        \\chardef\\rmoustache="23B1\n\
-        \\chardef\\S="00A7\n\
-        \\chardef\\ss="00DF\n\
-        \\chardef\\Vert="2016\n\
-        \\chardef\\vert=`\\|\n\
-        \\chardef\\Uparrow="21D1\n\
-        \\chardef\\uparrow="2191\n\
-        \\chardef\\updownarrow="2195\n\
-        \\chardef\\Updownarrow="21D5\n\
+        \\mathchardef\\\\="0000A\n\
+        \\mathchardef\\{=`\\{\n\
+        \\mathchardef\\}=`\\}\n\
+        \\mathchardef\\$=`\\$\n\
+        \\mathchardef\\#=`\\#\n\
+        \\mathchardef\\%=`\\%\n\
+        \\mathchardef\\&=`\\&\n\
+        \\mathchardef\\_=`\\_\n\
+        \\mathchardef\\aa="700E5\n\
+        \\mathchardef\\ae="700E6\n\
+        \\mathchardef\\aleph="02135\n\
         \\mathchardef\\alpha="703B1\n\
+        \\mathchardef\\amalg="22A3F\n\
         \\mathchardef\\angle="02220\n\
+        \\mathchardef\\approx="32248\n\
+        \\mathchardef\\arrowvert="023D0\n\
+        \\mathchardef\\ast="2002A\n\
+        \\mathchardef\\asymp="3224D\n\
+        \\mathchardef\\backslash=`\\\\\n\
         \\mathchardef\\beta="703B2\n\
+        \\mathchardef\\bigcap="122C2\n\
+        \\mathchardef\\bigcirc="225EF\n\
+        \\mathchardef\\bigcup="122C3\n\
+        \\mathchardef\\bigodot="12A00\n\
+        \\mathchardef\\bigoplus="12A01\n\
+        \\mathchardef\\bigotimes="12A02\n\
+        \\mathchardef\\bigtriangleup="225B3\n\
+        \\mathchardef\\bigtriangledown="225BD\n\
+        \\mathchardef\\bigsqcup="12A06\n\
+        \\mathchardef\\biguplus="12A04\n\
+        \\mathchardef\\bigvee="122C1\n\
+        \\mathchardef\\bigwedge="122C0\n\
+        \\mathchardef\\bot="022A5\n\
+        \\mathchardef\\bracevert="023AA\n\
+        \\mathchardef\\bowtie="322C8\n\
+        \\mathchardef\\bullet="22022\n\
+        \\mathchardef\\cap="22229\n\
+        \\mathchardef\\cdot="222C5\n\
+        \\mathchardef\\cdotp="622C5\n\
         \\mathchardef\\chi="703C7\n\
+        \\mathchardef\\circ="225CB\n\
         \\mathchardef\\clubsuit="02663\n\
         \\mathchardef\\colon="6003A\n\
+        \\mathchardef\\cong="32245\n\
         \\mathchardef\\coprod="12210\n\
+        \\mathchardef\\cup="2222A\n\
+        \\mathchardef\\dag="02020\n\
+        \\mathchardef\\dagger="22020\n\
+        \\mathchardef\\dashv="322A3\n\
+        \\mathchardef\\ddag="02021\n\
+        \\mathchardef\\ddagger="22021\n\
         \\mathchardef\\delta="703B4\n\
+        \\mathchardef\\diamond="222C4\n\
         \\mathchardef\\diamondsuit="02662\n\
+        \\mathchardef\\div="200F7\n\
+        \\mathchardef\\doteq="32250\n\
+        \\mathchardef\\downarrow="2193\n\
+        \\mathchardef\\ell="02113\n\
+        \\mathchardef\\emptyset="02205\n\
         \\mathchardef\\epsilon="703F5\n\
+        \\mathchardef\\equiv="32261\n\
         \\mathchardef\\eta="703B7\n\
+        \\mathchardef\\exists="02203\n\
+        \\mathchardef\\flat="0266D\n\
+        \\mathchardef\\forall="02200\n\
+        \\mathchardef\\frown="32322\n\
         \\mathchardef\\gamma="703B3\n\
+        \\mathchardef\\ge="32265 \\let\\geq=\\ge\n\
+        \\mathchardef\\gg="3226B\n\
         \\mathchardef\\hbar="70127\n\
         \\mathchardef\\heartsuit="02661\n\
+        \\mathchardef\\hookleftarrow="321AA\n\
+        \\mathchardef\\hookrightarrow="321A9\n\
         \\mathchardef\\imath="70131\n\
+        \\mathchardef\\in="32208\n\
+        \\mathchardef\\infty="0221E\n\
         \\mathchardef\\intop="1222B \\def\\int{\\intop\\nolimits}\n\
         \\mathchardef\\iota="703B9\n\
         \\mathchardef\\jmath="70237\n\
         \\mathchardef\\kappa="703BA\n\
+        \\mathchardef\\l="00142\n\
         \\mathchardef\\lambda="703BB\n\
-        \\mathchardef\\leftarrow="32190 \\let\\gets=\\leftarrow\n\
-        \\mathchardef\\Leftarrow="321D0\n\
-        \\mathchardef\\leftrightarrow="32194\n\
-        \\mathchardef\\Leftrightarrow="321D4\n\
+        \\mathchardef\\langle="027E8\n\
+        \\mathchardef\\lbrace=`\\{\n\
+        \\mathchardef\\lceil="02308\n\
         \\mathchardef\\ldotp="6002E\n\
+        \\mathchardef\\le="32264 \\let\\leq=\\le\n\
+        \\mathchardef\\leftarrow="32190 \\let\\gets=\\leftarrow\n\
+        \\mathchardef\\leftharpoondown="321BD\n\
+        \\mathchardef\\leftharpoonup="321BC\n\
+        \\mathchardef\\leftrightarrow="32194\n\
+        \\mathchardef\\lfloor="0230A\n\
+        \\mathchardef\\lgroup="027EE\n\
+        \\mathchardef\\ll="3226A\n\
+        \\mathchardef\\lmoustache="023B0\n\
+        \\mathchardef\\longleftarrow="327F5\n\
+        \\mathchardef\\longleftrightarrow="327F7\n\
+        \\mathchardef\\longmapsto="327FC\n\
+        \\mathchardef\\longrightarrow="327F6\n\
+        \\mathchardef\\mapsto="321A6\n\
+        \\mathchardef\\mid="32223\n\
+        \\mathchardef\\models="322A7\n\
+        \\mathchardef\\mp="22213\n\
         \\mathchardef\\mu="703BC\n\
+        \\mathchardef\\nabla="02207\n\
+        \\mathchardef\\natural="0266E\n\
+        \\mathchardef\\nearrow="32197\n\
+        \\mathchardef\\neg="000AC \\let\\lnot=\\neg\n\
+        \\mathchardef\\ne="32260 \\let\\neq=\\ne\n\
+        \\mathchardef\\ni="3220B \\let\\owns=\\ni\n\
+        \\mathchardef\\notin="32209\n\
         \\mathchardef\\nu="703BD\n\
+        \\mathchardef\\nwarrow="32196\n\
+        \\mathchardef\\o="700F8\n\
+        \\mathchardef\\odot="22299\n\
+        \\mathchardef\\oe="70153\n\
+        \\mathchardef\\ointop="1222E \\def\\oint{\\ointop\\nolimits}\n\
         \\mathchardef\\omega="703C9\n\
+        \\mathchardef\\ominus="22296\n\
+        \\mathchardef\\oplus="22295\n\
+        \\mathchardef\\oslash="22298\n\
+        \\mathchardef\\otimes="22297\n\
+        \\mathchardef\\parallel="32225\n\
+        \\mathchardef\\partial="02202\n\
+        \\mathchardef\\perp="322A5\n\
         \\mathchardef\\phi="703D5\n\
         \\mathchardef\\pi="703C0\n\
+        \\mathchardef\\pm="200B1\n\
+        \\mathchardef\\prec="3227A\n\
+        \\mathchardef\\preceq="3227C\n\
+        \\mathchardef\\prime="02032\n\
         \\mathchardef\\prod="1220F\n\
+        \\mathchardef\\propto="3221D\n\
         \\mathchardef\\psi="703C8\n\
+        \\mathchardef\\rangle="027E9\n\
+        \\mathchardef\\rbrace=`\\}\n\
+        \\mathchardef\\rceil="02309\n\
+        \\mathchardef\\relbar="3002D\n\
+        \\mathchardef\\rfloor="0230B\n\
+        \\mathchardef\\rgroup="027EF\n\
         \\mathchardef\\rho="703C1\n\
         \\mathchardef\\rightarrow="32192 \\let\\to=\\rightarrow\n\
-        \\mathchardef\\Rightarrow="321D2\n\
+        \\mathchardef\\rightharpoondown="321C1\n\
+        \\mathchardef\\rightharpoonup="321C0\n\
+        \\mathchardef\\rightleftharpoons="321CC\n\
+        \\mathchardef\\rmoustache="023B1\n\
+        \\mathchardef\\searrow="32198\n\
+        \\mathchardef\\setminus="22216\n\
+        \\mathchardef\\sharp="0266F\n\
+        \\mathchardef\\sim="3223C\n\
+        \\mathchardef\\simeq="32243\n\
         \\mathchardef\\sigma="703C3\n\
+        \\mathchardef\\smile="32323\n\
+        \\mathchardef\\sqcap="22293\n\
+        \\mathchardef\\sqcup="22294\n\
+        \\mathchardef\\sqsubseteq="32291\n\
+        \\mathchardef\\sqsupseteq="32292\n\
+        \\mathchardef\\ss="000DF\n\
+        \\mathchardef\\star="222C6\n\
+        \\mathchardef\\subset="32282\n\
+        \\mathchardef\\subseteq="32286\n\
+        \\mathchardef\\succ="3227B\n\
+        \\mathchardef\\succeq="3227D\n\
         \\mathchardef\\sum="12211\n\
+        \\mathchardef\\supset="32283\n\
+        \\mathchardef\\supseteq="32287\n\
+        \\mathchardef\\swarrow="32199\n\
         \\mathchardef\\tau="703C4\n\
         \\mathchardef\\theta="703B8\n\
         \\mathchardef\\times="200D7\n\
+        \\mathchardef\\top="022A4\n\
+        \\mathchardef\\triangle="025B3\n\
+        \\mathchardef\\triangleleft="225C1\n\
+        \\mathchardef\\triangleright="225B7\n\
+        \\mathchardef\\ucup="2228E\n\
+        \\mathchardef\\uparrow="02191\n\
+        \\mathchardef\\updownarrow="02195\n\
         \\mathchardef\\upsilon="703C5\n\
         \\mathchardef\\varepsilon="703B5\n\
         \\mathchardef\\varphi="703C6\n\
@@ -13688,21 +14037,47 @@
         \\mathchardef\\varrho="703F1\n\
         \\mathchardef\\varsigma="703C2\n\
         \\mathchardef\\vartheta="703D1\n\
+        \\mathchardef\\vdash="322A2\n\
+        \\mathchardef\\vee="22228 \\let\\lor=\\vee\n\
+        \\mathchardef\\vert=`\\|\n\
+        \\mathchardef\\wedge="22227 \\let\\land=\\wedge\n\
+        \\mathchardef\\wp="02118\n\
+        \\mathchardef\\wr="22240\n\
         \\mathchardef\\xi="703BE\n\
         \\mathchardef\\zeta="703B6\n\
+        \\mathchardef\\AA="700C5\n\
+        \\mathchardef\\AE="700C6\n\
+        \\mathchardef\\Arrowvert="02225\n\
         \\mathchardef\\Delta="00394\n\
+        \\mathchardef\\Downarrow="21D3\n\
         \\mathchardef\\Gamma="00393\n\
         \\mathchardef\\Im="02111\n\
+        \\mathchardef\\L="00141\n\
         \\mathchardef\\Lambda="0039B\n\
+        \\mathchardef\\Leftarrow="321D0\n\
+        \\mathchardef\\Leftrightarrow="321D4\n\
+        \\mathchardef\\Longleftarrow="327F8\n\
+        \\mathchardef\\Longleftrightarrow="327FA\n\
+        \\mathchardef\\Longrightarrow="327F9\n\
+        \\mathchardef\\O="700D8\n\
+        \\mathchardef\\OE="70152\n\
         \\mathchardef\\Omega="003A9\n\
+        \\mathchardef\\Orb="225EF\n\
+        \\mathchardef\\P="000B6\n\
         \\mathchardef\\Phi="003A6\n\
         \\mathchardef\\Pi="003A0\n\
         \\mathchardef\\Psi="003A8\n\
         \\mathchardef\\Re="0211C\n\
+        \\mathchardef\\Relbar="3003D\n\
+        \\mathchardef\\Rightarrow="321D2\n\
+        \\mathchardef\\S="000A7\n\
         \\mathchardef\\Sigma="003A3\n\
         \\mathchardef\\spadesuit="02660\n\
         \\mathchardef\\Theta="00398\n\
+        \\mathchardef\\Uparrow="021D1\n\
+        \\mathchardef\\Updownarrow="021D5\n\
         \\mathchardef\\Upsilon="003A5\n\
+        \\mathchardef\\Vert="02016 \\let\\|=\\Vert\n\
         \\mathchardef\\Xi="0039E\n\
         \\def\\~{\\accent"02DC }\n\
         \\def\\,{\\mskip\\thinmuskip}\n\
@@ -13719,13 +14094,25 @@
         \\def\\arctan{\\mathop{\\rm arctan}\\nolimits}\n\
         \\def\\arg{\\mathop{\\rm arg}\\nolimits}\n\
         \\def\\bar{\\accent"AF }\n\
+        \\def\\big#1{{\\n@space\\left#1\\vbox to 1em{}\\right.}}\n\
+        \\def\\bigl{\\mathopen\\big}\n\
+        \\def\\bigm{\\mathrel\\big}\n\
+        \\def\\bigr{\\mathclose\\big}\n\
+        \\def\\bigg#1{{\\n@space\\left#1\\vbox to 1.6em{}\\right.}}\n\
+        \\def\\biggl{\\mathopen\\bigg}\n\
+        \\def\\biggm{\\mathrel\\bigg}\n\
+        \\def\\biggr{\\mathclose\\bigg}\n\
         \\def\\bmod{\
             \\nonscript\\mskip-\\medmuskip\\mkern5mu\\mathbin{\\rm mod}\\mkern5mu\\nonscript\\mskip-\\medmuskip}\n\
+        \\def\\brace{\\atopwithdelims\\{\\}}\n\
+        \\def\\brack{\\atopwithdelims[]}\n\
         \\def\\breve{\\accent"02D8 }\n\
-        \\def\\cdot{\\mathbin{\\vcenter.}}}\n\
-        \\def\\cdotp{\\mathpunct{\\vcenter.}}}\n\
+        \\def\\buildrel#1\\over#2{\\mathrel{\\mathop{\\kern0pt#2}\\limits^{#1}}}\n\
+        \\def\\cases#1{\
+            \\left\\{\\,{\\halign{##\\hfil&\\quad##\\hfil\\cr#1\\crcr}}\\right.}\n\
         \\def\\cdots{\\mathinner{\\cdotp\\cdotp\\cdotp}}\n\
         \\def\\check{\\accent"02C7 }\n\
+        \\def\\choose{\\atopwithdelims()}\n\
         \\def\\cong{\\mathrel{\\tilde=}}\n\
         \\def\\cos{\\mathop{\\rm cos}\\nolimits}\n\
         \\def\\cosh{\\mathop{\\rm cosh}\\nolimits}\n\
@@ -13733,6 +14120,7 @@
         \\def\\coth{\\mathop{\\rm coth}\\nolimits}\n\
         \\def\\csc{\\mathop{\\rm csc}\\nolimits}\n\
         \\def\\ddot{\\accent"A8 }\n\
+        \\def\\ddots{\\mathinner{\\char"22F1}}\n\
         \\def\\deg{\\mathop{\\rm deg}\\nolimits}\n\
         \\def\\det{\\mathop{\\rm det}}\n\
         \\def\\dim{\\mathop{\\rm dim}\\nolimits}\n\
@@ -13741,9 +14129,10 @@
         \\def\\exp{\\mathop{\\rm exp}\\nolimits}\n\
         \\def\\gcd{\\mathop{\\rm gcd}}\n\
         \\def\\grave{\\accent"60 }\n\
-        \\def\\H{\\accent"02DD }\n\
         \\def\\hat{\\accent"5E }\n\
         \\def\\hom{\\mathop{\\rm hom}\\nolimits}\n\
+        \\def\\hphantom#1{\\vbox to0pt{\\phantom#1}}\n\
+        \\def\\iff{\\;\\Longleftrightarrow\\;}\n\
         \\def\\inf{\\mathop{\\rm inf}}\n\
         \\def\\iterate{\\body \\let\\next=\\iterate\\else\\let\\next=\\relax\\fi\\next}\n\
         \\def\\joinrel{\\mathrel{\\mkern-3mu}}\n\
@@ -13758,12 +14147,16 @@
         \\def\\log{\\mathop{\\rm log}\\nolimits}\n\
         \\def\\loop#1\\repeat{\\def\\body{#1}\\iterate}\n\
         \\def\\lq{`}\n\
+        \\def\\mathstrut{\\vphantom(}\n\
+        \\def\\matrix#1{\\,\\halign{\\hfil##\\hfil&&\\quad\\hfil##\\hfil\\cr\
+              #1\\crcr}\\,}\n\
         \\def\\max{\\mathop{\\rm max}}\n\
         \\def\\min{\\mathop{\\rm min}}\n\
-        \\def\\not{\\@ifnextchar={\\char"2260\\@gobble}{\\hbox to 0pt{/}}}\n\
+        \\def\\n@space{\\nulldelimiterspace=0pt\\relax}\n\
+        \\def\\not{\\@ifnextchar={\\mathchar"32260\\@gobble}{\\hbox to 0pt{/}}}}\n\
         \\def\\null{\\hbox{}}\n\
+        \\def\\pmatrix#1{\\left(\\matrix{#1}\\right)}\n\
         \\def\\pmod#1{\\mkern18mu({\\rm mod}\\,\\,#1)}\n\
-        \\def\\Pr{\\mathop{\\rm Pr}}\n\
         \\def\\rbrack{]}\n\
         \\def\\rq{\'}\n\
         \\def\\sec{\\mathop{\\rm sec}\\nolimits}\n\
@@ -13778,10 +14171,23 @@
         \\def\\t{\\accent"0311 }\n\
         \\def\\tan{\\mathop{\\rm tan}\\nolimits}\n\
         \\def\\tanh{\\mathop{\\rm tanh}\\nolimits}\n\
-        \\def\\TeX{T\\kern-.1667em{\\lower.5exE}\\kern-.125emX}\n\
+        \\def\\thinspace{\\kern.1667em}\n\
         \\def\\tilde{\\accent"02DC }\n\
         \\def\\u{\\accent"02D8 }\n\
         \\def\\v{\\accent"02C7 }\n\
+        \\def\\vdots{\\mathinner{\\char"22EE}}\n\
+        \\def\\vphantom#1{\\hbox to0pt{\\phantom#1}}\n\
+        \\def\\Big#1{{\\n@space\\left#1\\vbox to 1.3em{}\\right.}}\n\
+        \\def\\Bigl{\\mathopen\\Big}\n\
+        \\def\\Bigm{\\mathrel\\Big}\n\
+        \\def\\Bigr{\\mathclose\\Big}\n\
+        \\def\\Bigg#1{{\\n@space\\left#1\\vbox to 1.9em{}\\right.}}\n\
+        \\def\\Biggl{\\mathopen\\Bigg}\n\
+        \\def\\Biggm{\\mathrel\\Bigg}\n\
+        \\def\\Biggr{\\mathclose\\Bigg}\n\
+        \\def\\H{\\accent"02DD }\n\
+        \\def\\Pr{\\mathop{\\rm Pr}}\n\
+        \\def\\TeX{T\\kern-.1667em{\\lower.5exE}\\kern-.125emX}\n\
         \\let\\bgroup={\n\
         \\let\\displaymath=\\[\n\
         \\let\\enddisplaymath=\\]\n\
@@ -13792,10 +14198,6 @@
         \\let\\sb=^\n\
         \\let\\sp=_\n\
         \\let\\repeat=\\fi\n\
-        \\def\\obeyspaces{\\catcode`\\ =13\\relax}\n\
-        \\catcode`\\ =12\\def\\space{ }\\obeyspaces\\let =\\space\n\
-        \\catcode`\\ =10\n\
-        \\def\\thinspace{\\kern.1667em}\n\
         \\def\\negthinspace{\\kern-.1667em}\n\
         \\def\\enspace{\\kern.5em}\n\
         \\def\\enskip{\\hskip.5em\\relax}\n\
@@ -13805,18 +14207,15 @@
         \\def\\medskip{\\vskip\\medskipamount}\n\
         \\def\\bigskip{\\vskip\\bigskipamount}\n\
         \\def~{\\char"00A0\\relax}\n\
-        \\mathcode`\\⋅=8 \\catcode`\\⋅=\\active\n\
-        \\def⋅{\\mathchoice{\\mathbin{\\vcenter.}}{\\mathbin{\\vcenter.}}{{\\vcenter.}}{{\\vcenter.}}}\n\
-        \\catcode`\\⋅=12\n\
+        \\def\\obeyspaces{\\catcode`\\ =13\\relax}\n\
+        \\catcode`\\ =12\\def\\space{ }\\obeyspaces\\let =\\space\n\
+        \\catcode`\\ =10\n\
         \\newcount\\mscount\n\
         \\def\\multispan#1{\\omit \\mscount#1\\relax\\loop\\ifnum\\mscount>1\\sp@n\\repeat}\n\
         \\def\\sp@n{\\span\\omit\\advance\\mscount-1}\n\
         \\def\\two@digits#1{\\ifnum#1<10 0\\fi\\the#1}\n\
         \\def\\dospecials{\
             \\do\\ \\do\\\\\\do\\{\\do\\}\\do\\$\\do\\&\\do\\#\\do\\^\\do\\^^K\\do\\_\\do\\^^A\\do\\%\\do\\~}\n\
-        \\def\\choose{\\atopwithdelims()}\n\
-        \\def\\brack{\\atopwithdelims[]}\n\
-        \\def\\brace{\\atopwithdelims\\{\\}}\n\
         \\def\\mathpalette#1#2{\
             \\mathchoice{#1\\displaystyle{#2}}{#1\\textstyle{#2}}{#1\\scriptstyle{#2}}{#1\\scriptscriptstyle{#2}}}\n\
         \\def\\frac#1#2{{{#1}\\over{#2}}}\n\
