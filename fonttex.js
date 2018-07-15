@@ -21,7 +21,7 @@
     // If, for whatever reason, someone loaded two version of fontTeX, the one with the
     // latest version number wins. They're compared as string instead of numbers to
     // handle version numbers with double digits like 1.10.15.
-    var current = '0.5';
+    var current = '0.5.1';
     if (fontTeX.version) {
         if (current.split('.').map(function(number) {
             return String.fromCharCode(48 + +number);
@@ -4300,12 +4300,12 @@
                             var finalBarWidth = barWidthDimen.em.value * (style == 'script' || style == 'scriptscript' ? .707106781 : 1) / 65536;
                             container.appendChild(denom);
                             container.appendChild(numer);
-                            var numerWidth = numer.offsetWidth,
+                            var numerWidth = numer.offsetWidth + 1,
                                 numerHeight = numer.offsetHeight / fontSize,
                                 numerScaledHeight = numerHeight * (style == 'text' || style == 'script' ? .707106781 : 1),
                                 numerScaledWidth = numerWidth * (style == 'text' || style == 'script' ? .707106781 : 1),
                                 denomHeight = denom.offsetHeight / fontSize,
-                                denomWidth = denom.offsetWidth,
+                                denomWidth = denom.offsetWidth + 1,
                                 denomScaledHeight = denomHeight * (style == 'text' || style == 'script' ? .707106781 : 1),
                                 denomScaledWidth = denomWidth * (style == 'text' || style == 'script' ? .707106781 : 1);
                             container.removeChild(denom);
@@ -4454,7 +4454,7 @@
                             if (token.delims[0] == '<') token.delims[0] = '⟨';
                             if (token.delims[1] == '<') token.delims[1] = '⟨';
 
-                            function renderElem(elem, delimiter, leftSide) {
+                            function renderElem(elem, delimiter, leftSide, scale) {
                                 switch (delimiter) {
                                     case '.':
                                     default:
@@ -4477,21 +4477,20 @@
                                         elem.style.width = fontTeX.fontDimen.widthOf(delimiter, family) + 'em';
                                         elem.style.verticalAlign = 'middle';
 
-                                        elem.height = 100;
-                                        elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) * 100;
+                                        elem.height = scale;
+                                        elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) * scale;
                                         var context = elem.getContext('2d');
                                         context.textAlign = 'center';
-                                        // The font is set to the current family with a font-size that will draw the char-
-                                        // acter such that its height + depth will take up 100px (the entirety of the can-
-                                        // vas).
-                                        context.font = 100 / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) + 'px ' + family;
+                                        context.fillStyle = cssDeclaration.color;
+
+                                        context.font = scale / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) + 'px ' + family;
                                         // Now the character is drawn. The x coordinate is set in the middle of the canvas
                                         // to ensure the character is drawn right in the center, like a normal character
                                         // would outside of a canvas. The y coordinate though is offset by the character's
                                         // depth so that the bottom of the visible character will be at the bottom of the
                                         // canvas (if it was just 100, everything below the character's baseline would be
                                         // cropped off).
-                                        context.fillText(delimiter, elem.width / 2, 100 - fontTeX.fontDimen.depthOf(delimiter, family) * 100 / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)));
+                                        context.fillText(delimiter, elem.width / 2, scale - fontTeX.fontDimen.depthOf(delimiter, family) * scale / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)));
                                         // Now the canvas is inserted into the element.
                                         token.div.insertBefore(elem, leftSide ? token.div.firstElementChild : null);
                                         break;
@@ -4512,17 +4511,24 @@
                                         elem.style.width = fontTeX.fontDimen.widthOf(delimiter, family) + 'em';
                                         elem.style.verticalAlign = 'middle';
 
-                                        if (height <= 2) {
+                                        // This if condition basically checks if the height of the parenthesis exceeds 2.
+                                        // But since canvases round height and widths, it checks if there will be at least
+                                        // one pixel more than twice the height of the parenthesis. If `height' was 2.01
+                                        // for example, and the height of the canvas was only like 5px, then `height' is
+                                        // greater than 2, but when it goes to be rendered, it ends up being rounded off
+                                        // to just the height of 2.
+                                        if (Math.floor(Math.floor(scale / 2 * height) - scale) <= 0) {
                                             // If the height is less than 2, the character can be drawn normally and then just
                                             // stretched. The code below is copied from the second case item.
 
-                                            elem.height = 100;
-                                            elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / fontTeX.fontDimen.heightOf(delimiter, family) * 100 * (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
+                                            elem.height = scale;
+                                            elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / fontTeX.fontDimen.heightOf(delimiter, family) * scale * (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
                                             var context = elem.getContext('2d');
                                             context.textAlign = 'center';
-                                            context.font = 100 / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) + 'px ' + family;
-                                            context.translate(0, 100);
-                                            context.fillText(delimiter, elem.width / 2, -fontTeX.fontDimen.depthOf(delimiter, family) * 100 / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)));
+                                            context.fillStyle = cssDeclaration.color;
+                                            context.font = scale / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) + 'px ' + family;
+                                            context.translate(0, scale);
+                                            context.fillText(delimiter, elem.width / 2, -fontTeX.fontDimen.depthOf(delimiter, family) * scale / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)));
                                         } else {
                                             // If the desired height is greater than two times its normal height, extra steps
                                             // are necessary to get to its desired height without making it look weird.
@@ -4539,22 +4545,23 @@
                                             // remains). Now, since the bottom half of the canvas has been cleared, the copy of
                                             // the bottom half of the character can be pasted. Now, even though the two would
                                             // normally overlap, they don't because they were drawn separately.
-                                            var glyphHeight = (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
-                                            elem.height = height * 50;
-                                            elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / fontTeX.fontDimen.heightOf(delimiter, family) * 100 * (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
+                                            var glyphHeight = fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family);
+                                            elem.height = height * (scale / 2);
+                                            elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / fontTeX.fontDimen.heightOf(delimiter, family) * scale * (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
                                             var context = elem.getContext('2d');
                                             context.textAlign = 'center';
-                                            context.font = 100 / glyphHeight + 'px ' + family;
-                                            context.fillText(delimiter, elem.width / 2, 50 - fontTeX.fontDimen.depthOf(delimiter, family) * 100 / glyphHeight);
+                                            context.fillStyle = cssDeclaration.color;
+                                            context.font = scale / glyphHeight + 'px ' + family;
+                                            context.fillText(delimiter, elem.width / 2, scale / 2 - fontTeX.fontDimen.depthOf(delimiter, family) * scale / glyphHeight);
                                             // Now that the bottom half of the first glyph has been drawn, an `ImageData' saves
                                             // the pixels so they can be put on the canvas later.
-                                            var bottomHalf = context.getImageData(0, 0, elem.width, 50);
+                                            var bottomHalf = context.getImageData(0, 0, elem.width, scale / 2);
                                             context.clearRect(0, 0, elem.width, elem.height);
                                             // The top half needs to be drawn now.
-                                            context.fillText(delimiter, elem.width / 2, 100 - fontTeX.fontDimen.depthOf(delimiter, family) * 100 / glyphHeight)
-                                            context.clearRect(0, 50, elem.width, elem.height);
+                                            context.fillText(delimiter, elem.width / 2, scale - fontTeX.fontDimen.depthOf(delimiter, family) * scale / glyphHeight)
+                                            context.clearRect(0, scale / 2, elem.width, elem.height);
                                             // Now paste the bottom half.
-                                            context.putImageData(bottomHalf, 0, elem.height - 50);
+                                            context.putImageData(bottomHalf, 0, elem.height - scale / 2);
                                             // All that's left to do is to connect them. To do that, a new `ImageData' instance
                                             // is made where we can manipulate individual pixels. It will have the height of
                                             // empty region of the canvas (the space between the two halves). For the top half
@@ -4564,8 +4571,8 @@
                                             // ally sets every single RGBA channel of every single pixel of every single row.
                                             // Since an `ImageData's `data' attribute is readonly though, you can't make a new
                                             // array and replace it, you have to change each individual value.
-                                            var region = context.createImageData(elem.width, elem.height - 100);
-                                            var topHalfRow = context.getImageData(0, 49, elem.width, 1).data,
+                                            var region = context.createImageData(elem.width, elem.height - scale);
+                                            var topHalfRow = context.getImageData(0, scale / 2 - 1, elem.width, 1).data,
                                                 bottomHalfRow = bottomHalf.data.slice(0, elem.width * 4);
                                             for (var i = 0, l = region.height / 2; i < l; i++) {
                                                 for (var n = 0, j = elem.width; n < j; n++) {
@@ -4581,7 +4588,7 @@
                                             }
                                             // The pixels have all been copied. After it gets pasted below, the two halves will
                                             // be connected.
-                                            context.putImageData(region, 0, 50);
+                                            context.putImageData(region, 0, scale / 2);
                                         }
                                         token.div.insertBefore(elem, leftSide ? token.div.firstElementChild : null);
                                         break;
@@ -4610,25 +4617,26 @@
                                         elem.style.height = height + 'em';
                                         elem.style.width = fontTeX.fontDimen.widthOf(delimiter, family) + 'em';
                                         elem.style.verticalAlign = 'middle';
-                                        var glyphHeight = 100 / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
-                                        elem.height = Math.max(height, 1) * 100;
-                                        elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / fontTeX.fontDimen.heightOf(delimiter, family) * 100 * (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
+                                        var glyphHeight = scale / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
+                                        elem.height = Math.max(height, 1) * scale;
+                                        elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / fontTeX.fontDimen.heightOf(delimiter, family) * scale * (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
                                         var context = elem.getContext('2d');
                                         context.textAlign = 'center';
+                                        context.fillStyle = cssDeclaration.color;
                                         context.font = glyphHeight + 'px ' + family;
-                                        context.fillText(delimiter, elem.width / 2, 50 - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight);
+                                        context.fillText(delimiter, elem.width / 2, scale / 2 - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight);
 
-                                        var bottomHalf = context.getImageData(0, 0, elem.width, 50);
+                                        var bottomHalf = context.getImageData(0, 0, elem.width, scale / 2);
                                         context.clearRect(0, 0, elem.width, elem.height);
 
-                                        context.fillText(delimiter, elem.width / 2, 100 - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight)
-                                        context.clearRect(0, 50, elem.width, elem.height);
+                                        context.fillText(delimiter, elem.width / 2, scale - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight)
+                                        context.clearRect(0, scale / 2, elem.width, elem.height);
 
-                                        context.putImageData(bottomHalf, 0, elem.height - 50);
+                                        context.putImageData(bottomHalf, 0, elem.height - scale / 2);
 
-                                        if (elem.height > 100) {
-                                            var region = context.createImageData(elem.width, elem.height - 100);
-                                            var topHalfRow = context.getImageData(0, 49, elem.width, 1).data,
+                                        if (elem.height > scale) {
+                                            var region = context.createImageData(elem.width, elem.height - scale);
+                                            var topHalfRow = context.getImageData(0, scale / 2 - 1, elem.width, 1).data,
                                                 bottomHalfRow = bottomHalf.data.slice(0, elem.width * 4);
                                             for (var i = 0, l = region.height / 2; i < l; i++) {
                                                 for (var n = 0, j = elem.width; n < j; n++) {
@@ -4642,7 +4650,7 @@
                                                     region.data[~~(i + region.height / 2) * elem.width * 4 + n * 4 + 3] = bottomHalfRow[n * 4 + 3];
                                                 }
                                             }
-                                            context.putImageData(region, 0, 50);
+                                            context.putImageData(region, 0, scale / 2);
                                         }
 
                                         token.div.insertBefore(elem, leftSide ? token.div.firstElementChild : null);
@@ -4662,37 +4670,38 @@
                                         elem.style.height = height + 'em';
                                         elem.style.width = fontTeX.fontDimen.widthOf(delimiter, family) + 'em';
                                         elem.style.verticalAlign = 'middle';
-                                        var glyphHeight = 100 / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
-                                        elem.height = Math.max(height, 1) * 100;
-                                        elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / fontTeX.fontDimen.heightOf(delimiter, family) * 100 * (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
+                                        var glyphHeight = scale / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
+                                        elem.height = Math.max(height, 1) * scale;
+                                        elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / fontTeX.fontDimen.heightOf(delimiter, family) * scale * (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
                                         var context = elem.getContext('2d');
                                         context.textAlign = 'center';
+                                        context.fillStyle = cssDeclaration.color;
                                         context.font = glyphHeight + 'px ' + family;
 
                                         // The bottom half is saved here.
-                                        context.fillText(delimiter, elem.width / 2, 33 - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight);
-                                        var bottomHalf = context.getImageData(0, 0, elem.width, 33);
+                                        context.fillText(delimiter, elem.width / 2, Math.floor(scale / 3) - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight);
+                                        var bottomHalf = context.getImageData(0, 0, elem.width, Math.floor(scale / 3));
                                         context.clearRect(0, 0, elem.width, elem.height);
 
                                         // Since there's three parts, the top needs to be saved too for the next part (the
                                         // middle) to be drawn too.
-                                        context.fillText(delimiter, elem.width / 2, 100 - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight)
-                                        var topHalf = context.getImageData(0, 0, elem.width, 33);
+                                        context.fillText(delimiter, elem.width / 2, scale - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight)
+                                        var topHalf = context.getImageData(0, 0, elem.width, Math.floor(scale / 3));
                                         context.clearRect(0, 0, elem.width, elem.height);
 
                                         // The middle is drawn here and the top and bottom parts are cleared.
-                                        context.fillText(delimiter, elem.width / 2, elem.height / 2 + 50 - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight);
-                                        context.clearRect(0, 0, elem.width, Math.floor(elem.height / 2) - 17);
-                                        context.clearRect(0, Math.ceil(elem.height / 2) + 17, elem.width, elem.height);
+                                        context.fillText(delimiter, elem.width / 2, elem.height / 2 + scale / 2 - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight);
+                                        context.clearRect(0, 0, elem.width, Math.floor(elem.height / 2) - Math.floor(scale / 2) + Math.floor(scale / 3));
+                                        context.clearRect(0, Math.ceil(elem.height / 2) + Math.floor(scale / 2) - Math.floor(scale / 3), elem.width, elem.height);
 
                                         context.putImageData(topHalf, 0, 0);
-                                        context.putImageData(bottomHalf, 0, elem.height - 33);
+                                        context.putImageData(bottomHalf, 0, elem.height - Math.floor(scale / 3));
 
-                                        if (elem.height > 100) {
+                                        if (elem.height > scale) {
                                             // There are two regions that need to be filled in. The top one is done first.
-                                            var topRegion = context.createImageData(elem.width, Math.ceil(elem.height / 2) - 50),
-                                                topHalfRow = topHalf.data.slice(32 * elem.width * 4, 33 * elem.width * 4),
-                                                bottomHalfRow = context.getImageData(0, Math.ceil(elem.height / 2) - 16, elem.width, 1).data;
+                                            var topRegion = context.createImageData(elem.width, Math.ceil((elem.height - scale) / 2)),
+                                                topHalfRow = topHalf.data.slice((Math.floor(scale / 3) - 1) * elem.width * 4, Math.floor(scale / 3) * elem.width * 4),
+                                                bottomHalfRow = context.getImageData(0, Math.floor(elem.height / 2) - Math.floor(scale / 2) + Math.floor(scale / 3), elem.width, 1).data;
                                             for (var i = 0, l = topRegion.height / 2; i < l; i++) {
                                                 for (var n = 0, j = elem.width; n < j; n++) {
                                                     topRegion.data[i * elem.width * 4 + n * 4] = topHalfRow[n * 4];
@@ -4705,23 +4714,23 @@
                                                     topRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4 + 3] = bottomHalfRow[n * 4 + 3];
                                                 }
                                             }
-                                            var bottomRegion = context.createImageData(elem.width, Math.ceil(elem.height / 2) - 50),
-                                                topHalfRow = context.getImageData(0, Math.floor(elem.height / 2) + 16, elem.width, 1).data,
+                                            var bottomRegion = context.createImageData(elem.width, Math.floor(elem.height / 2) - Math.floor(scale / 2) + 1),
+                                                topHalfRow = context.getImageData(0, Math.ceil(elem.height / 2) + Math.floor(scale / 2) - Math.floor(scale / 3) - 1, elem.width, 1).data,
                                                 bottomHalfRow = bottomHalf.data.slice(0, elem.width * 4)
-                                            for (var i = 0, l = topRegion.height / 2; i < l; i++) {
+                                            for (var i = 0, l = bottomRegion.height / 2; i < l; i++) {
                                                 for (var n = 0, j = elem.width; n < j; n++) {
                                                     bottomRegion.data[i * elem.width * 4 + n * 4] = topHalfRow[n * 4];
                                                     bottomRegion.data[i * elem.width * 4 + n * 4 + 1] = topHalfRow[n * 4 + 1];
                                                     bottomRegion.data[i * elem.width * 4 + n * 4 + 2] = topHalfRow[n * 4 + 2];
                                                     bottomRegion.data[i * elem.width * 4 + n * 4 + 3] = topHalfRow[n * 4 + 3];
-                                                    bottomRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4] = bottomHalfRow[n * 4];
-                                                    bottomRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4 + 1] = bottomHalfRow[n * 4 + 1];
-                                                    bottomRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4 + 2] = bottomHalfRow[n * 4 + 2];
-                                                    bottomRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4 + 3] = bottomHalfRow[n * 4 + 3];
+                                                    bottomRegion.data[~~(i + bottomRegion.height / 2) * elem.width * 4 + n * 4] = bottomHalfRow[n * 4];
+                                                    bottomRegion.data[~~(i + bottomRegion.height / 2) * elem.width * 4 + n * 4 + 1] = bottomHalfRow[n * 4 + 1];
+                                                    bottomRegion.data[~~(i + bottomRegion.height / 2) * elem.width * 4 + n * 4 + 2] = bottomHalfRow[n * 4 + 2];
+                                                    bottomRegion.data[~~(i + bottomRegion.height / 2) * elem.width * 4 + n * 4 + 3] = bottomHalfRow[n * 4 + 3];
                                                 }
                                             }
-                                            context.putImageData(topRegion, 0, 33);
-                                            context.putImageData(bottomRegion, 0, elem.height / 2 + 17);
+                                            context.putImageData(topRegion, 0, Math.floor(scale / 3));
+                                            context.putImageData(bottomRegion, 0, elem.height / 2 + Math.floor(scale / 2) - Math.floor(scale / 3));
                                         }
 
                                         token.div.insertBefore(elem, leftSide ? token.div.firstElementChild : null);
@@ -4729,8 +4738,8 @@
                                 }
                             }
 
-                            renderElem(leftDelim, token.delims[0], true);
-                            renderElem(rightDelim, token.delims[1], false);
+                            renderElem(leftDelim, token.delims[0], true, fontSize);
+                            renderElem(rightDelim, token.delims[1], false, fontSize);
 
 
                             // If the fraction is being rendered in a different font size than normal, the
@@ -4971,7 +4980,7 @@
                             // invisible with opacity: 0. It will still take up the normal amount of space and
                             // be treated exactly as if it wasn't a phantom atom.
                             if (token.phantom) {
-                                token.div.firstElementChild.style.opacity = 0;
+                                token.div.firstElementChild.style.visibility = 'hidden';
                             }
 
                             // Now a font-size needs to be set on the element to show differences between
@@ -5017,7 +5026,7 @@
                                 if (token.delims[0] == '<') token.delims[0] = '⟨';
                                 if (token.delims[1] == '<') token.delims[1] = '⟨';
 
-                                function renderElem(elem, delimiter, leftSide) {
+                                function renderElem(elem, delimiter, leftSide, scale) {
                                     switch (delimiter) {
                                         case '.':
                                         default:
@@ -5060,25 +5069,28 @@
                                             token.div.renderedHeight = Math.max(height / 2 + axisHeight, token.div.renderedHeight);
                                             token.div.renderedDepth = Math.max(height / 2 - axisHeight, token.div.renderedDepth)
 
-                                            // The height of the canvas is set to 100 (all of its coordinates are based on the
-                                            // height). The width is found out by setting up the ratio [width] / [character's
-                                            // physical width] = 100 / [character's visible height]. The physical width is used
-                                            // so that the delimiter will look as closely to a real character as possible.
-                                            elem.height = 100;
-                                            elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) * 100;
+                                            // To ensure the canvas comes out as close to the real character as possible, the
+                                            // actual font-size of the element is used as the canvas's height. By using the
+                                            // real size, it ensures the canvas won't be scaled up or down. When it does, the
+                                            // character inside tends to not stay anti-aliased and looks all blocky. Plus, a
+                                            // small font-size means less pixels have to be drawn later, which means less time
+                                            // it takes to render (a small font-size is normal, how many times do you see a
+                                            // 1000px font-size on a website?).
+                                            elem.height = scale;
+                                            elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) * scale;
                                             var context = elem.getContext('2d');
                                             context.textAlign = 'center';
+                                            context.fillStyle = cssDeclaration.color;
                                             // The font is set to the current family with a font-size that will draw the char-
-                                            // acter such that its height + depth will take up 100px (the entirety of the can-
-                                            // vas).
-                                            context.font = 100 / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) + 'px ' + family;
+                                            // acter such that its height + depth will take up the full height of the canvas.
+                                            context.font = scale / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) + 'px ' + family;
                                             // Now the character is drawn. The x coordinate is set in the middle of the canvas
                                             // to ensure the character is drawn right in the center, like a normal character
                                             // would outside of a canvas. The y coordinate though is offset by the character's
                                             // depth so that the bottom of the visible character will be at the bottom of the
-                                            // canvas (if it was just 100, everything below the character's baseline would be
-                                            // cropped off).
-                                            context.fillText(delimiter, elem.width / 2, 100 - fontTeX.fontDimen.depthOf(delimiter, family) * 100 / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)));
+                                            // canvas (if it was just set at the bottom of the canvas without any offsetting,
+                                            // everything below the character's baseline would be cropped off).
+                                            context.fillText(delimiter, elem.width / 2, scale - fontTeX.fontDimen.depthOf(delimiter, family) * scale / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)));
                                             // Now the canvas is inserted into the element.
                                             token.div.insertBefore(elem, leftSide ? token.div.firstElementChild : null);
                                             break;
@@ -5103,17 +5115,24 @@
                                             token.div.renderedHeight = Math.max(height / 2 + axisHeight, token.div.renderedHeight);
                                             token.div.renderedDepth = Math.max(height / 2 - axisHeight, token.div.renderedDepth)
 
-                                            if (height <= 2) {
+                                            // This if condition basically checks if the height of the parenthesis exceeds 2.
+                                            // But since canvases round height and widths, it checks if there will be at least
+                                            // one pixel more than twice the height of the parenthesis. If `height' was 2.01
+                                            // for example, and the height of the canvas was only like 5px, then `height' is
+                                            // greater than 2, but when it goes to be rendered, it ends up being rounded off
+                                            // to just the height of 2.
+                                            if (Math.floor(Math.floor(scale / 2 * height) - scale) <= 0) {
                                                 // If the height is less than 2, the character can be drawn normally and then just
                                                 // stretched. The code below is copied from the second case item.
 
-                                                elem.height = 100;
-                                                elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / fontTeX.fontDimen.heightOf(delimiter, family) * 100 * (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
+                                                elem.height = scale;
+                                                elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / fontTeX.fontDimen.heightOf(delimiter, family) * scale * (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
                                                 var context = elem.getContext('2d');
                                                 context.textAlign = 'center';
-                                                context.font = 100 / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) + 'px ' + family;
-                                                context.translate(0, 100);
-                                                context.fillText(delimiter, elem.width / 2, -fontTeX.fontDimen.depthOf(delimiter, family) * 100 / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)));
+                                                context.fillStyle = cssDeclaration.color;
+                                                context.font = scale / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)) + 'px ' + family;
+                                                context.translate(0, scale);
+                                                context.fillText(delimiter, elem.width / 2, -fontTeX.fontDimen.depthOf(delimiter, family) * scale / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family)));
                                             } else {
                                                 // If the desired height is greater than two times its normal height, extra steps
                                                 // are necessary to get to its desired height without making it look weird.
@@ -5131,21 +5150,22 @@
                                                 // the bottom half of the character can be pasted. Now, even though the two would
                                                 // normally overlap, they don't because they were drawn separately.
                                                 var glyphHeight = (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
-                                                elem.height = height * 50;
-                                                elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / fontTeX.fontDimen.heightOf(delimiter, family) * 100 * (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
+                                                elem.height = scale / 2 * height;
+                                                elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / fontTeX.fontDimen.heightOf(delimiter, family) * scale * (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
                                                 var context = elem.getContext('2d');
                                                 context.textAlign = 'center';
-                                                context.font = 100 / glyphHeight + 'px ' + family;
-                                                context.fillText(delimiter, elem.width / 2, 50 - fontTeX.fontDimen.depthOf(delimiter, family) * 100 / glyphHeight);
+                                                context.fillStyle = cssDeclaration.color;
+                                                context.font = scale / glyphHeight + 'px ' + family;
+                                                context.fillText(delimiter, elem.width / 2, scale / 2 - fontTeX.fontDimen.depthOf(delimiter, family) * scale / glyphHeight);
                                                 // Now that the bottom half of the first glyph has been drawn, an `ImageData' saves
                                                 // the pixels so they can be put on the canvas later.
-                                                var bottomHalf = context.getImageData(0, 0, elem.width, 50);
+                                                var bottomHalf = context.getImageData(0, 0, elem.width, scale / 2);
                                                 context.clearRect(0, 0, elem.width, elem.height);
                                                 // The top half needs to be drawn now.
-                                                context.fillText(delimiter, elem.width / 2, 100 - fontTeX.fontDimen.depthOf(delimiter, family) * 100 / glyphHeight)
-                                                context.clearRect(0, 50, elem.width, elem.height);
+                                                context.fillText(delimiter, elem.width / 2, scale - fontTeX.fontDimen.depthOf(delimiter, family) * scale / glyphHeight)
+                                                context.clearRect(0, scale / 2, elem.width, elem.height);
                                                 // Now paste the bottom half.
-                                                context.putImageData(bottomHalf, 0, elem.height - 50);
+                                                context.putImageData(bottomHalf, 0, elem.height - scale / 2);
                                                 // All that's left to do is to connect them. To do that, a new `ImageData' instance
                                                 // is made where we can manipulate individual pixels. It will have the height of
                                                 // empty region of the canvas (the space between the two halves). For the top half
@@ -5155,8 +5175,8 @@
                                                 // ally sets every single RGBA channel of every single pixel of every single row.
                                                 // Since an `ImageData's `data' attribute is readonly though, you can't make a new
                                                 // array and replace it, you have to change each individual value.
-                                                var region = context.createImageData(elem.width, elem.height - 100);
-                                                var topHalfRow = context.getImageData(0, 49, elem.width, 1).data,
+                                                var region = context.createImageData(elem.width, elem.height - scale);
+                                                var topHalfRow = context.getImageData(0, scale / 2 - 1, elem.width, 1).data,
                                                     bottomHalfRow = bottomHalf.data.slice(0, elem.width * 4);
                                                 for (var i = 0, l = region.height / 2; i < l; i++) {
                                                     for (var n = 0, j = elem.width; n < j; n++) {
@@ -5172,7 +5192,7 @@
                                                 }
                                                 // The pixels have all been copied. After it gets pasted below, the two halves will
                                                 // be connected.
-                                                context.putImageData(region, 0, 50);
+                                                context.putImageData(region, 0, scale / 2);
                                             }
                                             token.div.insertBefore(elem, leftSide ? token.div.firstElementChild : null);
                                             break;
@@ -5202,28 +5222,29 @@
                                             elem.style.height = height + 'em';
                                             elem.style.width = fontTeX.fontDimen.widthOf(delimiter, family) + 'em';
                                             elem.style.verticalAlign = 'middle';
-                                            var glyphHeight = 100 / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
-                                            elem.height = Math.max(height, 1) * 100;
-                                            elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / fontTeX.fontDimen.heightOf(delimiter, family) * 100 * (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
+                                            var glyphHeight = scale / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
+                                            elem.height = Math.max(height, 1) * scale;
+                                            elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / fontTeX.fontDimen.heightOf(delimiter, family) * scale * (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
                                             var context = elem.getContext('2d');
                                             context.textAlign = 'center';
+                                            context.fillStyle = cssDeclaration.color;
                                             context.font = glyphHeight + 'px ' + family;
-                                            context.fillText(delimiter, elem.width / 2, 50 - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight);
+                                            context.fillText(delimiter, elem.width / 2, scale / 2 - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight);
 
                                             token.div.renderedHeight = Math.max(height / 2 + axisHeight, token.div.renderedHeight);
                                             token.div.renderedDepth = Math.max(height / 2 - axisHeight, token.div.renderedDepth)
 
-                                            var bottomHalf = context.getImageData(0, 0, elem.width, 50);
+                                            var bottomHalf = context.getImageData(0, 0, elem.width, scale / 2);
                                             context.clearRect(0, 0, elem.width, elem.height);
 
-                                            context.fillText(delimiter, elem.width / 2, 100 - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight)
-                                            context.clearRect(0, 50, elem.width, elem.height);
+                                            context.fillText(delimiter, elem.width / 2, scale - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight)
+                                            context.clearRect(0, scale, elem.width, elem.height);
 
-                                            context.putImageData(bottomHalf, 0, elem.height - 50);
+                                            context.putImageData(bottomHalf, 0, elem.height - scale / 2);
 
-                                            if (elem.height > 100) {
-                                                var region = context.createImageData(elem.width, elem.height - 100);
-                                                var topHalfRow = context.getImageData(0, 49, elem.width, 1).data,
+                                            if (elem.height > scale) {
+                                                var region = context.createImageData(elem.width, elem.height - scale);
+                                                var topHalfRow = context.getImageData(0, scale / 2 - 1, elem.width, 1).data,
                                                     bottomHalfRow = bottomHalf.data.slice(0, elem.width * 4);
                                                 for (var i = 0, l = region.height / 2; i < l; i++) {
                                                     for (var n = 0, j = elem.width; n < j; n++) {
@@ -5237,7 +5258,7 @@
                                                         region.data[~~(i + region.height / 2) * elem.width * 4 + n * 4 + 3] = bottomHalfRow[n * 4 + 3];
                                                     }
                                                 }
-                                                context.putImageData(region, 0, 50);
+                                                context.putImageData(region, 0, scale / 2);
                                             }
 
                                             token.div.insertBefore(elem, leftSide ? token.div.firstElementChild : null);
@@ -5258,78 +5279,81 @@
                                             elem.style.height = height + 'em';
                                             elem.style.width = fontTeX.fontDimen.widthOf(delimiter, family) + 'em';
                                             elem.style.verticalAlign = 'middle';
-                                            var glyphHeight = 100 / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
-                                            elem.height = Math.max(height, 1) * 100;
-                                            elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / fontTeX.fontDimen.heightOf(delimiter, family) * 100 * (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
+                                            var glyphHeight = scale / (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
+                                            elem.height = Math.max(height, 1) * scale;
+                                            elem.width = fontTeX.fontDimen.widthOf(delimiter, family) / fontTeX.fontDimen.heightOf(delimiter, family) * scale * (fontTeX.fontDimen.heightOf(delimiter, family) + fontTeX.fontDimen.depthOf(delimiter, family));
                                             var context = elem.getContext('2d');
                                             context.textAlign = 'center';
+                                            context.fillStyle = cssDeclaration.color;
                                             context.font = glyphHeight + 'px ' + family;
 
                                             token.div.renderedHeight = Math.max(height / 2 + axisHeight, token.div.renderedHeight);
                                             token.div.renderedDepth = Math.max(height / 2 - axisHeight, token.div.renderedDepth)
 
-                                            // The bottom half is saved here.
-                                            context.fillText(delimiter, elem.width / 2, 33 - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight);
-                                            var bottomHalf = context.getImageData(0, 0, elem.width, 33);
-                                            context.clearRect(0, 0, elem.width, elem.height);
+	                                        if (scale >= 3) {
+	                                            // The bottom half is saved here.
+	                                            context.fillText(delimiter, elem.width / 2, Math.floor(scale / 3) - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight);
+	                                            var bottomHalf = context.getImageData(0, 0, elem.width, Math.floor(scale / 3));
+	                                            context.clearRect(0, 0, elem.width, elem.height);
 
-                                            // Since there's three parts, the top needs to be saved too for the next part (the
-                                            // middle) to be drawn too.
-                                            context.fillText(delimiter, elem.width / 2, 100 - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight)
-                                            var topHalf = context.getImageData(0, 0, elem.width, 33);
-                                            context.clearRect(0, 0, elem.width, elem.height);
+	                                            // Since there's three parts, the top needs to be saved too for the next part (the
+	                                            // middle) to be drawn too.
+	                                            context.fillText(delimiter, elem.width / 2, scale - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight)
+	                                            var topHalf = context.getImageData(0, 0, elem.width, Math.floor(scale / 3));
+	                                            context.clearRect(0, 0, elem.width, elem.height);
 
-                                            // The middle is drawn here and the top and bottom parts are cleared.
-                                            context.fillText(delimiter, elem.width / 2, elem.height / 2 + 50 - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight);
-                                            context.clearRect(0, 0, elem.width, Math.floor(elem.height / 2) - 17);
-                                            context.clearRect(0, Math.ceil(elem.height / 2) + 17, elem.width, elem.height);
+	                                            // The middle is drawn here and the top and bottom parts are cleared.
+	                                            context.fillText(delimiter, elem.width / 2, elem.height / 2 + scale / 2 - fontTeX.fontDimen.depthOf(delimiter, family) * glyphHeight);
+	                                            context.clearRect(0, 0, elem.width, Math.floor(elem.height / 2) - Math.floor(scale / 2) + Math.floor(scale / 3));
+	                                            context.clearRect(0, Math.ceil(elem.height / 2) + Math.floor(scale / 2) - Math.floor(scale / 3), elem.width, elem.height);
 
-                                            context.putImageData(topHalf, 0, 0);
-                                            context.putImageData(bottomHalf, 0, elem.height - 33);
+	                                            context.putImageData(topHalf, 0, 0);
+	                                            context.putImageData(bottomHalf, 0, elem.height - Math.floor(scale / 3));
 
-                                            if (elem.height > 100) {
-                                                // There are two regions that need to be filled in. The top one is done first.
-                                                var topRegion = context.createImageData(elem.width, Math.ceil(elem.height / 2) - 50),
-                                                    topHalfRow = topHalf.data.slice(32 * elem.width * 4, 33 * elem.width * 4),
-                                                    bottomHalfRow = context.getImageData(0, Math.ceil(elem.height / 2) - 16, elem.width, 1).data;
-                                                for (var i = 0, l = topRegion.height / 2; i < l; i++) {
-                                                    for (var n = 0, j = elem.width; n < j; n++) {
-                                                        topRegion.data[i * elem.width * 4 + n * 4] = topHalfRow[n * 4];
-                                                        topRegion.data[i * elem.width * 4 + n * 4 + 1] = topHalfRow[n * 4 + 1];
-                                                        topRegion.data[i * elem.width * 4 + n * 4 + 2] = topHalfRow[n * 4 + 2];
-                                                        topRegion.data[i * elem.width * 4 + n * 4 + 3] = topHalfRow[n * 4 + 3];
-                                                        topRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4] = bottomHalfRow[n * 4];
-                                                        topRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4 + 1] = bottomHalfRow[n * 4 + 1];
-                                                        topRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4 + 2] = bottomHalfRow[n * 4 + 2];
-                                                        topRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4 + 3] = bottomHalfRow[n * 4 + 3];
-                                                    }
-                                                }
-                                                var bottomRegion = context.createImageData(elem.width, Math.ceil(elem.height / 2) - 50),
-                                                    topHalfRow = context.getImageData(0, Math.floor(elem.height / 2) + 16, elem.width, 1).data,
-                                                    bottomHalfRow = bottomHalf.data.slice(0, elem.width * 4)
-                                                for (var i = 0, l = topRegion.height / 2; i < l; i++) {
-                                                    for (var n = 0, j = elem.width; n < j; n++) {
-                                                        bottomRegion.data[i * elem.width * 4 + n * 4] = topHalfRow[n * 4];
-                                                        bottomRegion.data[i * elem.width * 4 + n * 4 + 1] = topHalfRow[n * 4 + 1];
-                                                        bottomRegion.data[i * elem.width * 4 + n * 4 + 2] = topHalfRow[n * 4 + 2];
-                                                        bottomRegion.data[i * elem.width * 4 + n * 4 + 3] = topHalfRow[n * 4 + 3];
-                                                        bottomRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4] = bottomHalfRow[n * 4];
-                                                        bottomRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4 + 1] = bottomHalfRow[n * 4 + 1];
-                                                        bottomRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4 + 2] = bottomHalfRow[n * 4 + 2];
-                                                        bottomRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4 + 3] = bottomHalfRow[n * 4 + 3];
-                                                    }
-                                                }
-                                                context.putImageData(topRegion, 0, 33);
-                                                context.putImageData(bottomRegion, 0, elem.height / 2 + 17);
-                                            }
+	                                            if (elem.height > scale) {
+	                                                // There are two regions that need to be filled in. The top one is done first.
+	                                                var topRegion = context.createImageData(elem.width, Math.ceil((elem.height - scale) / 2)),
+	                                                    topHalfRow = topHalf.data.slice((Math.floor(scale / 3) - 1) * elem.width * 4, Math.floor(scale / 3) * elem.width * 4),
+	                                                    bottomHalfRow = context.getImageData(0, Math.floor(elem.height / 2) - Math.floor(scale / 2) + Math.floor(scale / 3), elem.width, 1).data;
+	                                                for (var i = 0, l = topRegion.height / 2; i < l; i++) {
+	                                                    for (var n = 0, j = elem.width; n < j; n++) {
+	                                                        topRegion.data[i * elem.width * 4 + n * 4] = topHalfRow[n * 4];
+	                                                        topRegion.data[i * elem.width * 4 + n * 4 + 1] = topHalfRow[n * 4 + 1];
+	                                                        topRegion.data[i * elem.width * 4 + n * 4 + 2] = topHalfRow[n * 4 + 2];
+	                                                        topRegion.data[i * elem.width * 4 + n * 4 + 3] = topHalfRow[n * 4 + 3];
+	                                                        topRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4] = bottomHalfRow[n * 4];
+	                                                        topRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4 + 1] = bottomHalfRow[n * 4 + 1];
+	                                                        topRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4 + 2] = bottomHalfRow[n * 4 + 2];
+	                                                        topRegion.data[~~(i + topRegion.height / 2) * elem.width * 4 + n * 4 + 3] = bottomHalfRow[n * 4 + 3];
+	                                                    }
+	                                                }
+	                                                var bottomRegion = context.createImageData(elem.width, Math.floor(elem.height / 2) - Math.floor(scale / 2) + 1),
+	                                                    topHalfRow = context.getImageData(0, Math.ceil(elem.height / 2) + Math.floor(scale / 2) - Math.floor(scale / 3) - 1, elem.width, 1).data,
+	                                                    bottomHalfRow = bottomHalf.data.slice(0, elem.width * 4)
+	                                                for (var i = 0, l = bottomRegion.height / 2; i < l; i++) {
+	                                                    for (var n = 0, j = elem.width; n < j; n++) {
+	                                                        bottomRegion.data[i * elem.width * 4 + n * 4] = topHalfRow[n * 4];
+	                                                        bottomRegion.data[i * elem.width * 4 + n * 4 + 1] = topHalfRow[n * 4 + 1];
+	                                                        bottomRegion.data[i * elem.width * 4 + n * 4 + 2] = topHalfRow[n * 4 + 2];
+	                                                        bottomRegion.data[i * elem.width * 4 + n * 4 + 3] = topHalfRow[n * 4 + 3];
+	                                                        bottomRegion.data[~~(i + bottomRegion.height / 2) * elem.width * 4 + n * 4] = bottomHalfRow[n * 4];
+	                                                        bottomRegion.data[~~(i + bottomRegion.height / 2) * elem.width * 4 + n * 4 + 1] = bottomHalfRow[n * 4 + 1];
+	                                                        bottomRegion.data[~~(i + bottomRegion.height / 2) * elem.width * 4 + n * 4 + 2] = bottomHalfRow[n * 4 + 2];
+	                                                        bottomRegion.data[~~(i + bottomRegion.height / 2) * elem.width * 4 + n * 4 + 3] = bottomHalfRow[n * 4 + 3];
+	                                                    }
+	                                                }
+	                                                context.putImageData(topRegion, 0, Math.floor(scale / 3));
+	                                                context.putImageData(bottomRegion, 0, elem.height / 2 + Math.floor(scale / 2) - Math.floor(scale / 3));
+	                                            }
+	                                        }
 
                                             token.div.insertBefore(elem, leftSide ? token.div.firstElementChild : null);
                                             break;
                                     }
                                 }
 
-                                renderElem(leftDelim, token.delims[0], true);
-                                renderElem(rightDelim, token.delims[1], false);
+                                renderElem(leftDelim, token.delims[0], true, fontSize);
+                                renderElem(rightDelim, token.delims[1], false, fontSize);
                             }
 
                             // Now that the nucleus of the atom is done, only the sub/superscripts need to be
@@ -5433,7 +5457,7 @@
                                     newBox(token.subscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', true, font, sub);
                                     sub.style.fontSize = '50px';
                                     container.appendChild(sub);
-                                    var subDimens = {height: sub.offsetHeight, width: sub.offsetWidth};
+                                    var subDimens = {height: sub.offsetHeight, width: sub.offsetWidth + 1};
                                     container.removeChild(sub);
 
                                     // Do the same for the superscript.
@@ -5442,7 +5466,7 @@
                                     newBox(token.superscript, style == 'display' || style == 'text' ? 'script' : 'scriptscript', cramped, font, sup);
                                     sup.style.fontSize = '50px';
                                     container.appendChild(sup);
-                                    var supDimens = {height: sup.offsetHeight, width: sup.offsetWidth};
+                                    var supDimens = {height: sup.offsetHeight, width: sup.offsetWidth + 1};
                                     container.removeChild(sup);
 
                                     sup.style.marginLeft = scriptOffset + 'em';
@@ -5493,7 +5517,7 @@
 
                                 var nucleusElem = token.div.firstElementChild;
                                 container.appendChild(token.div);
-                                var nucleusWidth = token.div.offsetWidth;
+                                var nucleusWidth = token.div.offsetWidth + 1;
                                 container.removeChild(token.div);
 
                                 if (token.subscript && !token.superscript) {
@@ -5859,7 +5883,7 @@
                                     var oldFontSize = token.div.style.fontSize;
                                     token.div.style.fontSize = '50px';
                                     container.appendChild(token.div);
-                                    var tokenWidth = token.div.offsetWidth / 50;
+                                    var tokenWidth = (token.div.offsetWidth + 1) / 50;
                                     container.removeChild(token.div);
                                     token.div.style.fontSize = oldFontSize;
                                     width.em.value += tokenWidth * 65536;
@@ -6036,7 +6060,7 @@
                                     var oldFontSize = token.div.style.fontSize;
                                     token.div.style.fontSize = '50px';
                                     container.appendChild(token.div);
-                                    acc.style.left = (token.div.offsetWidth / 50 - fontTeX.fontDimen.widthOf(token.accChar, family, font)) / 2 + offset + 'em';
+                                    acc.style.left = ((token.div.offsetWidth + 1) / 50 - fontTeX.fontDimen.widthOf(token.accChar, family, font)) / 2 + offset + 'em';
                                     container.removeChild(token.div);
                                     token.div.style.fontSize = oldFontSize;
                                     token.div.insertBefore(acc, token.div.firstElementChild);
@@ -6083,7 +6107,7 @@
                                     token.div.renderedDepth = Math.max(token.div.renderedDepth || 0, 0);
 
                                     container.appendChild(token.div);
-                                    var width = token.div.offsetWidth / fontSize;
+                                    var width = (token.div.offsetWidth + 1) / fontSize;
                                     container.removeChild(token.div);
 
                                     var overline = document.createElement('div'),
@@ -6296,7 +6320,7 @@
 
                                         index.style.fontSize = '50px';
                                         container.appendChild(index);
-                                        index.style.marginLeft = Math.max(-index.offsetWidth / 50, -(indexX + .05) / (style == 'script' ? .707106781 : style == 'scriptscript' ? 1 : .5)) + 'em';
+                                        index.style.marginLeft = Math.max(-(index.offsetWidth + 1) / 50, -(indexX + .05) / (style == 'script' ? .707106781 : style == 'scriptscript' ? 1 : .5)) + 'em';
                                         container.removeChild(index);
                                         index.style.fontSize = (style == 'script' ? .707106781 : style == 'scriptscript' ? 1 : .5) + 'em';
                                         index.style.top = (-Math.max(indexY - token.div.renderedDepth, fontTeX.fontDimen.heightOf('x', family) / 2) / (style == 'script' ? .707106781 : style == 'scriptscript' ? 1 : .5)) - index.renderedDepth - .1 + 'em';
@@ -14218,6 +14242,7 @@
             \\do\\ \\do\\\\\\do\\{\\do\\}\\do\\$\\do\\&\\do\\#\\do\\^\\do\\^^K\\do\\_\\do\\^^A\\do\\%\\do\\~}\n\
         \\def\\mathpalette#1#2{\
             \\mathchoice{#1\\displaystyle{#2}}{#1\\textstyle{#2}}{#1\\scriptstyle{#2}}{#1\\scriptscriptstyle{#2}}}\n\
+        \\def\\binom#1#2{{{#1}\\atopwithdelims(){#2}}}\n\
         \\def\\frac#1#2{{{#1}\\over{#2}}}\n\
         \\def\\mathrm#1{{\\rm#1}}\n\
         \\def\\textrm#1{{\\rm#1}}\n\
@@ -14917,6 +14942,35 @@
     }
 
     fontTeX._debug = {
-        data: data
+        data: data,
+        clearFontCache: function(family, style) {
+        	if (family && !style) {
+        		delete fontTeX.fontDimen.cache[family];
+        	} else if (style && !family) {
+        		style = style.split(",").filter(function(str) {
+        			return /^\\?(?:normalfont|nm|rm|it|sl|bf)$/.test(str.trim());
+        		}).map(function(str) {
+        			return str.trim() == "\\normalfont" || str.trim() == "normalfont" ? "nm" : str.trim()[0] == "\\" ? str.trim().substring(1) : str.trim();
+        		});
+        		if (style.length) {
+        			for (var family in fontTeX.fontDimen.cache) {
+        				for (var i = style.length - 1; i >= 0; i--) {
+        					delete fontTeX.fontDimen.cache[family][i];
+        				}
+        			}
+        		}
+        	} else if (family && style) {
+        		style = style.split(",").filter(function(str) {
+        			return /^\\?(?:normalfont|nm|rm|it|sl|bf)$/.test(str.trim());
+        		}).map(function(str) {
+        			return str.trim() == "\\normalfont" || str.trim() == "normalfont" ? "nm" : str.trim()[0] == "\\" ? str.trim().substring(1) : str.trim();
+        		});
+        		if (style.length && fontTeX.fontDimen.cache[family]) {
+    				for (var i = style.length - 1; i >= 0; i--) {
+    					delete fontTeX.fontDimen.cache[family][i];
+    				}
+        		}
+        	} else fontTeX.fontDimen.cache = {};
+        }
     };
 }();
